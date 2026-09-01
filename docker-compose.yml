@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: finas
+      POSTGRES_PASSWORD: finas
+      POSTGRES_DB: finas
+    ports:
+      - "5432:5432"
+    volumes:
+      - finas_db_data:/var/lib/postgresql/data
+
+volumes:
+  finas_db_data:
