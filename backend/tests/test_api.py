@@ -1,8 +1,11 @@
+import logging
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
 
-from api.main import app, pedidos_de_login
-from core.auth import criar_codigo_de_acesso
+from api.main import COOKIE_SESSAO, app, pedidos_de_login, pedidos_por_utilizador
+from core.auth import criar_codigo_de_acesso, criar_sessao
 from core.db import get_session
 from core.queries import obter_utilizador_por_telegram
 from tests.test_queries import preparar_dados
@@ -12,6 +15,7 @@ from tests.test_queries import preparar_dados
 def cliente(session):
     preparar_dados(session)
     pedidos_de_login.clear()
+    pedidos_por_utilizador.clear()
 
     def sessao_de_teste():
         yield session
@@ -436,3 +440,255 @@ def test_apagar_sem_sessao(cliente, session):
 
     assert cliente.delete("/expenses/" + str(despesa_id)).status_code == 401
     assert cliente.patch("/expenses/" + str(despesa_id), json={"merchant": "x"}).status_code == 401
+
+
+def test_sessao_de_utilizador_que_ja_nao_existe(cliente):
+    cliente.cookies.set(COOKIE_SESSAO, criar_sessao(9999))
+
+    assert cliente.get("/auth/me").status_code == 401
+
+
+def test_resumo_sem_mes_usa_o_mes_de_hoje(cliente, session):
+    entrar(cliente, session)
+
+    resposta = cliente.get("/stats/summary")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["month"] == date.today().strftime("%Y-%m")
+
+
+def test_resumo_com_mes_sem_o_traco(cliente, session):
+    entrar(cliente, session)
+
+    assert cliente.get("/stats/summary", params={"month": "2026"}).status_code == 400
+
+
+def test_resumo_com_mes_que_nao_existe(cliente, session):
+    entrar(cliente, session)
+
+    assert cliente.get("/stats/summary", params={"month": "2026-13"}).status_code == 400
+
+
+def test_categorias_com_tipo_invalido(cliente, session):
+    entrar(cliente, session)
+
+    assert cliente.get("/categories", params={"kind": "poupanca"}).status_code == 400
+
+
+def test_despesas_filtradas_por_tipo_zeram_o_outro_tipo(cliente, session):
+    entrar(cliente, session)
+
+    dados = cliente.get("/expenses", params={"kind": "expense"}).json()
+
+    assert dados["expense_cents"] == dados["total_cents"]
+    assert dados["income_cents"] == 0
+
+
+def test_editar_data_a_nulo(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    resposta = cliente.patch("/expenses/" + str(despesa["id"]), json={"expense_date": None})
+
+    assert resposta.status_code == 400
+
+
+def test_editar_moeda_a_nulo(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    resposta = cliente.patch("/expenses/" + str(despesa["id"]), json={"currency": None})
+
+    assert resposta.status_code == 400
+
+
+def test_editar_moeda_com_tamanho_errado(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    resposta = cliente.patch("/expenses/" + str(despesa["id"]), json={"currency": "euros"})
+
+    assert resposta.status_code == 400
+
+
+def test_editar_moeda_fica_em_maiusculas(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    dados = cliente.patch("/expenses/" + str(despesa["id"]), json={"currency": " usd "}).json()
+
+    assert dados["currency"] == "USD"
+
+
+def test_editar_comerciante_a_nulo(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    dados = cliente.patch("/expenses/" + str(despesa["id"]), json={"merchant": None}).json()
+
+    assert dados["merchant"] is None
+
+
+def test_editar_despesa_de_outro_utilizador(cliente, session):
+    entrar(cliente, session, telegram_user_id=222)
+    do_outro = primeira_despesa(cliente)
+    cliente.post("/auth/logout")
+    entrar(cliente, session, telegram_user_id=111)
+
+    resposta = cliente.patch("/expenses/" + str(do_outro["id"]), json={"merchant": "Roubada"})
+
+    assert resposta.status_code == 404
+
+
+@pytest.fixture
+def cliente_com_erros(session):
+    preparar_dados(session)
+    pedidos_de_login.clear()
+    pedidos_por_utilizador.clear()
+
+    def sessao_de_teste():
+        yield session
+
+    app.dependency_overrides[get_session] = sessao_de_teste
+    yield TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides.clear()
+
+
+def rebentar(*args, **kwargs):
+    raise RuntimeError("a base de dados foi abaixo")
+
+
+def test_pedido_fica_no_log(cliente, caplog):
+    with caplog.at_level(logging.INFO, logger="api.main"):
+        cliente.get("/health")
+
+    assert "GET /health 200" in caplog.text
+
+
+def test_erro_nao_previsto_devolve_500(cliente_com_erros, session, monkeypatch):
+    entrar(cliente_com_erros, session)
+    monkeypatch.setattr("api.main.listar_categorias_com_totais", rebentar)
+
+    resposta = cliente_com_erros.get("/categories")
+
+    assert resposta.status_code == 500
+    assert resposta.json() == {"detail": "Erro interno"}
+
+
+def test_erro_nao_previsto_nao_mostra_detalhes_ao_utilizador(
+    cliente_com_erros, session, monkeypatch
+):
+    entrar(cliente_com_erros, session)
+    monkeypatch.setattr("api.main.listar_categorias_com_totais", rebentar)
+
+    resposta = cliente_com_erros.get("/categories")
+
+    assert "base de dados foi abaixo" not in resposta.text
+    assert "Traceback" not in resposta.text
+
+
+def test_erro_nao_previsto_avisa_o_admin(cliente_com_erros, session, monkeypatch):
+    entrar(cliente_com_erros, session)
+    avisos = []
+    monkeypatch.setattr(
+        "api.main.avisar_erro",
+        lambda servico, onde, erro: avisos.append((servico, onde, str(erro))),
+    )
+    monkeypatch.setattr("api.main.listar_categorias_com_totais", rebentar)
+
+    cliente_com_erros.get("/categories")
+
+    assert avisos == [("na API", "GET /categories", "a base de dados foi abaixo")]
+
+
+def test_erro_nao_previsto_fica_no_log_com_traceback(
+    cliente_com_erros, session, monkeypatch, caplog
+):
+    entrar(cliente_com_erros, session)
+    monkeypatch.setattr("api.main.avisar_erro", lambda servico, onde, erro: False)
+    monkeypatch.setattr("api.main.listar_categorias_com_totais", rebentar)
+
+    with caplog.at_level(logging.ERROR, logger="api.main"):
+        cliente_com_erros.get("/categories")
+
+    assert "GET /categories" in caplog.text
+    assert "a base de dados foi abaixo" in caplog.text
+    assert "Traceback" in caplog.text
+
+
+def test_erro_previsto_nao_avisa_o_admin(cliente_com_erros, session, monkeypatch):
+    entrar(cliente_com_erros, session)
+    avisos = []
+    monkeypatch.setattr("api.main.avisar_erro", lambda servico, onde, erro: avisos.append(onde))
+
+    resposta = cliente_com_erros.get("/expenses/99999")
+
+    assert resposta.status_code == 404
+    assert avisos == []
+
+
+def test_limite_de_pedidos_por_utilizador(cliente, session, monkeypatch):
+    entrar(cliente, session)
+    monkeypatch.setattr("api.main.API_MAX_REQUESTS", 3)
+
+    for _ in range(3):
+        assert cliente.get("/expenses").status_code == 200
+
+    resposta = cliente.get("/expenses")
+
+    assert resposta.status_code == 429
+    assert resposta.json()["detail"] == "Demasiados pedidos, tenta daqui a pouco"
+
+
+def test_limite_da_api_e_por_utilizador(cliente, session, monkeypatch):
+    monkeypatch.setattr("api.main.API_MAX_REQUESTS", 2)
+    entrar(cliente, session, telegram_user_id=111)
+    cliente.get("/expenses")
+    cliente.get("/expenses")
+    assert cliente.get("/expenses").status_code == 429
+
+    cliente.post("/auth/logout")
+    entrar(cliente, session, telegram_user_id=222)
+
+    assert cliente.get("/expenses").status_code == 200
+
+
+def test_limite_da_api_fica_no_log(cliente, session, monkeypatch, caplog):
+    entrar(cliente, session)
+    monkeypatch.setattr("api.main.API_MAX_REQUESTS", 1)
+    cliente.get("/expenses")
+
+    with caplog.at_level(logging.WARNING, logger="api.main"):
+        cliente.get("/expenses")
+
+    assert "passou o limite de pedidos da API" in caplog.text
+
+
+def test_login_travado_ao_fim_de_muitas_tentativas(cliente, monkeypatch):
+    monkeypatch.setattr("api.main.MAX_PEDIDOS_LOGIN", 3)
+
+    for _ in range(3):
+        assert cliente.post("/auth/verify", json={"code": "000000"}).status_code == 401
+
+    resposta = cliente.post("/auth/verify", json={"code": "000000"})
+
+    assert resposta.status_code == 429
+
+
+def test_login_travado_fica_no_log(cliente, monkeypatch, caplog):
+    monkeypatch.setattr("api.main.MAX_PEDIDOS_LOGIN", 1)
+    cliente.post("/auth/verify", json={"code": "000000"})
+
+    with caplog.at_level(logging.WARNING, logger="api.main"):
+        cliente.post("/auth/verify", json={"code": "000000"})
+
+    assert "Demasiadas tentativas de login" in caplog.text
+
+
+def test_health_nao_conta_para_o_limite(cliente, session, monkeypatch):
+    entrar(cliente, session)
+    monkeypatch.setattr("api.main.API_MAX_REQUESTS", 1)
+    cliente.get("/expenses")
+
+    for _ in range(5):
+        assert cliente.get("/health").status_code == 200

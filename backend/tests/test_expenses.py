@@ -414,3 +414,26 @@ def test_timezone_do_utilizador(session):
     session.commit()
 
     assert obter_timezone(session, 12345) == "Pacific/Auckland"
+
+
+def test_atualizar_categoria_para_nulo(session):
+    despesa = guardar_despesa(session, 111, fazer_despesa())
+
+    atualizar_despesa(session, despesa.id, 111, {"category": None})
+
+    assert despesa.category_id is None
+
+
+def test_atualizar_subcategoria_e_metodo_de_pagamento(session):
+    despesa = guardar_despesa(session, 111, fazer_despesa())
+
+    atualizar_despesa(
+        session,
+        despesa.id,
+        111,
+        {"subcategory": "cinema", "payment_method": "mbway", "description": "bilhete"},
+    )
+
+    assert despesa.subcategory == "cinema"
+    assert despesa.payment_method == "mbway"
+    assert despesa.description == "bilhete"

@@ -182,3 +182,41 @@ def test_categoria_fora_da_lista_do_utilizador_vai_para_a_de_recurso():
 
 def test_nome_de_recurso_sem_outros():
     assert nome_de_recurso(["Alimentação", "Ginásio"]) == "Alimentação"
+
+
+def test_categoria_de_recurso_cria_a_outros_quando_nao_ha_nenhuma(session):
+    categoria = categoria_de_recurso(session, 999)
+
+    assert categoria.name == "Outros"
+    assert categoria.user_id == 999
+    assert categoria.id is not None
+
+
+def test_criar_categoria_com_tipo_invalido(session):
+    utilizador = preparar(session)
+
+    categoria, erro = criar_categoria(session, utilizador.id, "Poupança", "poupanca")
+
+    assert categoria is None
+    assert erro == "Tipo invalido"
+
+
+def test_renomear_para_um_nome_vazio(session):
+    utilizador = preparar(session)
+    lazer = procurar_por_nome(session, utilizador.id, "Lazer")
+
+    categoria, erro = renomear_categoria(session, utilizador.id, lazer.id, "   ")
+
+    assert categoria is None
+    assert erro == "Escreve um nome entre 1 e 100 caracteres"
+    assert procurar_por_nome(session, utilizador.id, "Lazer") is not None
+
+
+def test_mesclar_a_partir_de_uma_categoria_que_nao_existe(session):
+    utilizador = preparar(session)
+    casa = procurar_por_nome(session, utilizador.id, "Casa")
+
+    categoria, erro = mesclar_categorias(session, utilizador.id, 9999, casa.id)
+
+    assert categoria is None
+    assert erro == "Categoria nao encontrada"

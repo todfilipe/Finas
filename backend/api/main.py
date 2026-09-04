@@ -1,7 +1,11 @@
+import asyncio
+import logging
+import time
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from api.schemas import (
     AtualizacaoDeDespesa,
@@ -16,6 +20,7 @@ from api.schemas import (
     TotalPorMes,
     Utilizador,
 )
+from core.alerts import avisar_erro
 from core.auth import criar_sessao, ler_sessao, validar_codigo
 from core.categories import (
     TIPO_RECEITA,
@@ -27,9 +32,17 @@ from core.categories import (
     renomear_categoria,
 )
 from core.categories import TIPO_DESPESA
-from core.config import COOKIE_SECURE, CORS_ORIGINS, SESSION_DAYS
+from core.config import (
+    API_MAX_REQUESTS,
+    API_RATE_WINDOW_SECONDS,
+    COOKIE_SECURE,
+    CORS_ORIGINS,
+    SESSION_DAYS,
+)
 from core.db import get_session
 from core.expenses import apagar_despesa_do_utilizador, atualizar_despesa_do_utilizador
+from core.limits import ultrapassou_o_limite
+from core.logs import configurar_logging
 from core.models import User
 from core.queries import (
     contar_despesas,
@@ -45,12 +58,16 @@ from core.queries import (
     ultimo_dia_do_mes,
 )
 
+configurar_logging("api")
+logger = logging.getLogger(__name__)
+
 COOKIE_SESSAO = "finas_session"
 
 MAX_PEDIDOS_LOGIN = 10
 JANELA_LOGIN_SEGUNDOS = 300
 
 pedidos_de_login = {}
+pedidos_por_utilizador = {}
 
 app = FastAPI(title="Finas API")
 
@@ -63,19 +80,33 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def registar_pedido(request: Request, call_next):
+    inicio = time.monotonic()
+    resposta = await call_next(request)
+    demorou = round((time.monotonic() - inicio) * 1000)
+
+    logger.info(
+        "%s %s %s %sms",
+        request.method,
+        request.url.path,
+        resposta.status_code,
+        demorou,
+    )
+    return resposta
+
+
+@app.exception_handler(Exception)
+async def erro_nao_previsto(request: Request, erro: Exception):
+    onde = request.method + " " + request.url.path
+    logger.error("Erro nao previsto em %s", onde, exc_info=erro)
+    await asyncio.to_thread(avisar_erro, "na API", onde, erro)
+
+    return JSONResponse(status_code=500, content={"detail": "Erro interno"})
+
+
 def limite_de_pedidos_ultrapassado(ip):
-    agora = datetime.now(timezone.utc)
-    limite = agora - timedelta(seconds=JANELA_LOGIN_SEGUNDOS)
-
-    recentes = []
-    for momento in pedidos_de_login.get(ip, []):
-        if momento > limite:
-            recentes.append(momento)
-
-    recentes.append(agora)
-    pedidos_de_login[ip] = recentes
-
-    return len(recentes) > MAX_PEDIDOS_LOGIN
+    return ultrapassou_o_limite(pedidos_de_login, ip, MAX_PEDIDOS_LOGIN, JANELA_LOGIN_SEGUNDOS)
 
 
 def utilizador_atual(request: Request, session=Depends(get_session)):
@@ -86,6 +117,12 @@ def utilizador_atual(request: Request, session=Depends(get_session)):
     utilizador = session.get(User, user_id)
     if utilizador is None:
         raise HTTPException(status_code=401, detail="Sessao invalida ou expirada")
+
+    if ultrapassou_o_limite(
+        pedidos_por_utilizador, user_id, API_MAX_REQUESTS, API_RATE_WINDOW_SECONDS
+    ):
+        logger.warning("Utilizador %s passou o limite de pedidos da API", user_id)
+        raise HTTPException(status_code=429, detail="Demasiados pedidos, tenta daqui a pouco")
 
     return utilizador
 
@@ -120,6 +157,7 @@ def verificar_codigo(
 ):
     ip = request.client.host if request.client else "desconhecido"
     if limite_de_pedidos_ultrapassado(ip):
+        logger.warning("Demasiadas tentativas de login vindas de %s", ip)
         raise HTTPException(status_code=429, detail="Demasiadas tentativas, tenta daqui a pouco")
 
     utilizador = validar_codigo(session, pedido.code.strip())

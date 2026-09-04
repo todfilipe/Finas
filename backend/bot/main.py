@@ -19,9 +19,16 @@ from core.ai_parsing import (
     frase_de_recurso,
     parse_mensagem,
 )
+from core.alerts import avisar_erro
 from core.auth import criar_codigo_de_acesso
 from core.categories import TIPO_RECEITA
-from core.config import DASHBOARD_URL, TELEGRAM_BOT_TOKEN
+from core.config import (
+    ALLOWED_TELEGRAM_IDS,
+    BOT_MAX_MESSAGES,
+    BOT_RATE_WINDOW_SECONDS,
+    DASHBOARD_URL,
+    TELEGRAM_BOT_TOKEN,
+)
 from core.db import SessionLocal
 from core.expenses import (
     apagar_despesa,
@@ -34,10 +41,11 @@ from core.expenses import (
     obter_timezone,
     obter_ultima_despesa,
 )
+from core.limits import ultrapassou_o_limite
+from core.logs import configurar_logging
 from core.queries import listar_categorias, obter_utilizador_por_telegram
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-logging.getLogger("httpx").setLevel(logging.WARNING)
+configurar_logging("bot")
 logger = logging.getLogger(__name__)
 
 FRASES_APAGADA = [
@@ -75,11 +83,73 @@ TEXTO_ACESSO = (
     "Só serve uma vez e expira daqui a 5 minutos."
 )
 
+TEXTO_BOT_PRIVADO = (
+    "Este bot é privado e só responde a quem tem acesso. "
+    "Se achas que devias estar na lista, fala com quem o criou."
+)
+
+TEXTO_DEMASIADAS_MENSAGENS = (
+    "Calma aí 😅 estás a escrever depressa de mais. Tenta outra vez daqui a bocado."
+)
+
+mensagens_por_utilizador = {}
+
 PERGUNTAS = {
     "valor": "Quanto foi? Escreve só o valor (ex: 35,50).",
     "comerciante": "Onde foi? Escreve o nome.",
     "data": "Que dia foi? Escreve a data (ex: 01/09/2026).",
 }
+
+
+def ids_permitidos():
+    ids = []
+    for parte in ALLOWED_TELEGRAM_IDS.split(","):
+        limpo = parte.strip()
+        if limpo:
+            ids.append(limpo)
+
+    return ids
+
+
+def pode_usar_o_bot(telegram_user_id):
+    permitidos = ids_permitidos()
+    if not permitidos:
+        return True
+
+    return str(telegram_user_id) in permitidos
+
+
+def escreveu_demasiado(telegram_user_id):
+    return ultrapassou_o_limite(
+        mensagens_por_utilizador,
+        telegram_user_id,
+        BOT_MAX_MESSAGES,
+        BOT_RATE_WINDOW_SECONDS,
+    )
+
+
+async def responder_a_bloqueio(update, texto):
+    if update.callback_query is not None:
+        await update.callback_query.answer(texto)
+        return
+
+    await update.message.reply_text(texto)
+
+
+async def deixa_passar(update):
+    telegram_user_id = update.effective_user.id
+
+    if not pode_usar_o_bot(telegram_user_id):
+        logger.warning("Utilizador %s nao esta na lista de permitidos", telegram_user_id)
+        await responder_a_bloqueio(update, TEXTO_BOT_PRIVADO)
+        return False
+
+    if escreveu_demasiado(telegram_user_id):
+        logger.warning("Utilizador %s passou o limite de mensagens do bot", telegram_user_id)
+        await responder_a_bloqueio(update, TEXTO_DEMASIADAS_MENSAGENS)
+        return False
+
+    return True
 
 
 def teclado_apagar(ids):
@@ -217,6 +287,9 @@ def mensagem_de_acesso(telegram_user_id, nome):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     limpar_edicao(context)
     await update.message.reply_text(
         "Olá! Sou o Finas. Escreve-me as tuas despesas como falarias com um amigo. "
@@ -229,6 +302,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     limpar_edicao(context)
     await update.message.reply_text(
         mensagem_de_acesso(update.effective_user.id, update.effective_user.first_name),
@@ -237,6 +313,9 @@ async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def comando_apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     limpar_edicao(context)
 
     session = SessionLocal()
@@ -256,6 +335,9 @@ async def comando_apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def confirmar_apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     query = update.callback_query
     await query.answer()
 
@@ -277,6 +359,9 @@ async def confirmar_apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def editar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     limpar_edicao(context)
 
     session = SessionLocal()
@@ -298,6 +383,9 @@ async def editar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def escolher_campo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     query = update.callback_query
     await query.answer()
 
@@ -333,6 +421,9 @@ async def escolher_campo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def escolher_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     query = update.callback_query
     await query.answer()
 
@@ -407,6 +498,9 @@ async def aplicar_edicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     texto = update.message.text
     telegram_user_id = update.effective_user.id
 
@@ -434,8 +528,9 @@ async def mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 nomes,
                 nomes_receita,
             )
-        except Exception:
+        except Exception as erro:
             logger.exception("Não consegui processar a mensagem")
+            await asyncio.to_thread(avisar_erro, "no bot", "parsing da mensagem", erro)
             await update.message.reply_text(frase_de_recurso())
             return
 
@@ -474,15 +569,20 @@ async def mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ids.append(guardada.id)
 
         context.user_data["ultimas_despesas"] = ids
+        logger.info("Guardei %s movimentos do utilizador %s", len(ids), telegram_user_id)
         await update.message.reply_text(resultado.resposta, reply_markup=teclado_apagar(ids))
-    except Exception:
+    except Exception as erro:
         logger.exception("Não consegui guardar a despesa")
+        await asyncio.to_thread(avisar_erro, "no bot", "guardar a despesa", erro)
         await update.message.reply_text(frase_de_recurso())
     finally:
         session.close()
 
 
 async def apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     query = update.callback_query
     await query.answer()
 
@@ -521,6 +621,9 @@ def despesas_a_corrigir(session, telegram_user_id, context):
 
 
 async def escolher_despesa_da_correcao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await deixa_passar(update):
+        return
+
     query = update.callback_query
     await query.answer()
 
@@ -557,7 +660,23 @@ async def escolher_despesa_da_correcao(update: Update, context: ContextTypes.DEF
     await query.edit_message_text("Feito! Agora está: " + resumo_despesa(resumos[0]))
 
 
-def main():
+def onde_rebentou(update):
+    if update is None:
+        return "sem update"
+
+    if getattr(update, "callback_query", None) is not None:
+        return "botao " + str(update.callback_query.data)
+
+    return "mensagem"
+
+
+async def erro_do_bot(update, context):
+    onde = onde_rebentou(update)
+    logger.error("Erro nao previsto no bot (%s)", onde, exc_info=context.error)
+    await asyncio.to_thread(avisar_erro, "no bot", onde, context.error)
+
+
+def montar_app():
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("Falta TELEGRAM_BOT_TOKEN no .env")
 
@@ -573,6 +692,13 @@ def main():
     app.add_handler(CallbackQueryHandler(confirmar_apagar, pattern="^confirmar:"))
     app.add_handler(CallbackQueryHandler(escolher_despesa_da_correcao, pattern="^correcao:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem))
+    app.add_error_handler(erro_do_bot)
+    return app
+
+
+def main():
+    app = montar_app()
+    logger.info("Bot a arrancar")
     app.run_polling()
 
 

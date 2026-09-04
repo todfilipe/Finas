@@ -1,4 +1,6 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from core.auth import (
     agora_utc,
@@ -7,9 +9,11 @@ from core.auth import (
     gerar_codigo,
     ler_sessao,
     limpar_codigos_antigos,
+    tornar_utc,
     validar_codigo,
 )
 from core.config import MAX_LOGIN_ATTEMPTS
+from core.db import get_session
 from core.expenses import obter_ou_criar_utilizador
 from core.models import LoginToken
 
@@ -116,3 +120,29 @@ def test_limpar_codigos_antigos(session):
     limpar_codigos_antigos(session)
 
     assert session.query(LoginToken).count() == 1
+
+
+def test_tornar_utc_de_nada():
+    assert tornar_utc(None) is None
+
+
+def test_tornar_utc_poe_o_fuso_em_datas_sem_fuso():
+    sem_fuso = datetime(2026, 9, 3, 10, 0)
+
+    assert tornar_utc(sem_fuso).tzinfo == timezone.utc
+
+
+def test_tornar_utc_nao_mexe_em_datas_que_ja_tem_fuso():
+    com_fuso = datetime(2026, 9, 3, 10, 0, tzinfo=timezone.utc)
+
+    assert tornar_utc(com_fuso) is com_fuso
+
+
+def test_get_session_devolve_uma_sessao_e_fecha():
+    gerador = get_session()
+    sessao = next(gerador)
+
+    assert sessao is not None
+
+    with pytest.raises(StopIteration):
+        next(gerador)

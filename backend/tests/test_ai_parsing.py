@@ -1,5 +1,8 @@
 from datetime import date
 
+import pytest
+
+from core import ai_parsing
 from core.ai_parsing import (
     CATEGORIAS,
     FRASES_DE_RECURSO,
@@ -18,6 +21,7 @@ from core.ai_parsing import (
     limpar_moeda,
     montar_prompt,
     normalizar_categoria,
+    parse_mensagem,
     resolver_data,
 )
 
@@ -404,3 +408,127 @@ def test_prompt_nao_tem_travessoes():
 
 def test_prompt_proibe_travessoes_a_ia():
     assert "travessões" in montar_prompt("Europe/Lisbon", None)
+
+
+class FakeMensagemDaIA:
+    def __init__(self, parsed):
+        self.parsed = parsed
+
+
+class FakeEscolha:
+    def __init__(self, parsed):
+        self.message = FakeMensagemDaIA(parsed)
+
+
+class FakeCompletion:
+    def __init__(self, parsed):
+        self.choices = [FakeEscolha(parsed)]
+
+
+class FakeCompletions:
+    def __init__(self, parsed, pedidos):
+        self.parsed = parsed
+        self.pedidos = pedidos
+
+    def parse(self, model, messages, response_format):
+        self.pedidos.append({"model": model, "messages": messages})
+        return FakeCompletion(self.parsed)
+
+
+class FakeChat:
+    def __init__(self, parsed, pedidos):
+        self.completions = FakeCompletions(parsed, pedidos)
+
+
+def fingir_openai(monkeypatch, parsed):
+    pedidos = []
+
+    class FakeOpenAI:
+        def __init__(self, api_key=None):
+            self.chat = FakeChat(parsed, pedidos)
+
+    monkeypatch.setattr(ai_parsing, "OPENAI_API_KEY", "chave-de-teste")
+    monkeypatch.setattr(ai_parsing, "OpenAI", FakeOpenAI)
+    return pedidos
+
+
+def test_parse_mensagem_sem_chave(monkeypatch):
+    monkeypatch.setattr(ai_parsing, "OPENAI_API_KEY", "")
+
+    with pytest.raises(RuntimeError):
+        parse_mensagem("gastei 30 na fnac")
+
+
+def test_parse_mensagem_devolve_o_que_a_ia_deu(monkeypatch):
+    fingir_openai(monkeypatch, fazer_resposta(resposta="Anotado! 30 euros na Fnac."))
+
+    resultado = parse_mensagem("gastei 30 na fnac")
+
+    assert resultado.resposta == "Anotado! 30 euros na Fnac."
+    assert primeira(resultado).amount_cents == 3000
+
+
+def test_parse_mensagem_manda_o_prompt_e_a_mensagem(monkeypatch):
+    pedidos = fingir_openai(monkeypatch, fazer_resposta())
+
+    parse_mensagem("gastei 30 na fnac", "Europe/Lisbon", [fazer_resumo()])
+
+    messages = pedidos[0]["messages"]
+    assert messages[0]["role"] == "system"
+    assert "Finas" in messages[0]["content"]
+    assert "Fnac" in messages[0]["content"]
+    assert messages[1] == {"role": "user", "content": "gastei 30 na fnac"}
+
+
+def test_parse_mensagem_quando_a_ia_nao_devolve_json(monkeypatch):
+    fingir_openai(monkeypatch, None)
+
+    with pytest.raises(RuntimeError):
+        parse_mensagem("gastei 30 na fnac")
+
+
+def test_parse_mensagem_normaliza_a_categoria(monkeypatch):
+    fingir_openai(monkeypatch, fazer_resposta(category="Criptomoedas"))
+
+    resultado = parse_mensagem("gastei 30 em bitcoin")
+
+    assert primeira(resultado).category == "Outros"
+
+
+def test_parse_mensagem_aplica_o_limiar_de_confianca(monkeypatch):
+    fingir_openai(monkeypatch, fazer_resposta(confidence=0.2, needs_confirmation=False))
+
+    resultado = parse_mensagem("gastei nao sei quanto")
+
+    assert primeira(resultado).needs_confirmation is True
+
+
+def test_parse_mensagem_usa_as_categorias_do_utilizador(monkeypatch):
+    pedidos = fingir_openai(monkeypatch, fazer_resposta(category="Ginásio"))
+
+    resultado = parse_mensagem("gastei 30 no ginásio", "Europe/Lisbon", None, ["Ginásio", "Outros"])
+
+    assert primeira(resultado).category == "Ginásio"
+    assert "Ginásio" in pedidos[0]["messages"][0]["content"]
+
+
+def test_correcao_com_subcategoria_descricao_e_pagamento():
+    resultado = fazer_resposta(
+        e_correcao=True,
+        amount_cents=None,
+        currency=None,
+        category=None,
+        merchant=None,
+        date=None,
+        subcategory="cinema",
+        description="bilhete",
+        payment_method="mbway",
+    )
+
+    campos = campos_da_correcao(resultado)
+
+    assert campos == {
+        "subcategory": "cinema",
+        "description": "bilhete",
+        "payment_method": "mbway",
+    }
