@@ -30,6 +30,18 @@ class Category(Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class LoginToken(Base):
+    __tablename__ = "login_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    code: Mapped[str] = mapped_column(String(6), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Expense(Base):
     __tablename__ = "expenses"
 

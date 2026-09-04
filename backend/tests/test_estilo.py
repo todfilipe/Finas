@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 TRAVESSAO = chr(8212)
@@ -6,19 +7,23 @@ PASTAS_A_IGNORAR = [".venv", "__pycache__", ".git", "node_modules", ".ruff_cache
 
 EXTENSOES = [".py", ".md", ".toml", ".yml", ".yaml", ".example", ".json", ".ts", ".tsx", ".sql"]
 
+FICHEIROS_A_IGNORAR = ["AGENTS.md"]
+
 
 def ficheiros_do_projeto():
     raiz = Path(__file__).parent.parent.parent
     ficheiros = []
 
-    for caminho in raiz.rglob("*"):
-        if not caminho.is_file():
-            continue
-        if any(pasta in caminho.parts for pasta in PASTAS_A_IGNORAR):
-            continue
-        if caminho.suffix not in EXTENSOES:
-            continue
-        ficheiros.append(caminho)
+    for pasta_atual, subpastas, nomes in os.walk(raiz):
+        subpastas[:] = [nome for nome in subpastas if nome not in PASTAS_A_IGNORAR]
+
+        for nome in nomes:
+            caminho = Path(pasta_atual) / nome
+            if caminho.suffix not in EXTENSOES:
+                continue
+            if caminho.name in FICHEIROS_A_IGNORAR:
+                continue
+            ficheiros.append(caminho)
 
     return ficheiros
 

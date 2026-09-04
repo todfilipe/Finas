@@ -191,26 +191,6 @@ def test_frase_de_recurso_vem_da_lista():
     assert frase_de_recurso() in FRASES_DE_RECURSO
 
 
-def fazer_resposta(**campos):
-    base = {
-        "e_despesa": True,
-        "e_correcao": False,
-        "amount_cents": 3000,
-        "currency": "EUR",
-        "category": "Tecnologia",
-        "subcategory": None,
-        "merchant": "Fnac",
-        "description": None,
-        "date": None,
-        "payment_method": None,
-        "confidence": 0.9,
-        "needs_confirmation": False,
-        "resposta": "Anotado!",
-    }
-    base.update(campos)
-    return RespostaIA(**base)
-
-
 def test_prompt_explica_datas_relativas():
     prompt = montar_prompt("Europe/Lisbon", None)
     assert "ontem" in prompt

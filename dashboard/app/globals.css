@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-preto: #000000;
+  --color-branco: #ffffff;
+  --color-dourado: #96650f;
+  --font-titulo: var(--fonte-titulo);
+  --font-corpo: var(--fonte-corpo);
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-branco);
+  color: var(--color-preto);
+  font-family: var(--font-corpo);
+}

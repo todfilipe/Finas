@@ -11,6 +11,10 @@ Tracker de despesas pessoais que se usa a escrever, não a preencher formulário
 
 Sem apps para abrir, sem formulários, só escrever a despesa como pensas nela.
 
+## Correr o projeto
+
+Ver `dashboard/README.md` para o desenvolvimento local e `DEPLOY.md` para o deploy numa VPS.
+
 ## Stack
 
 - **Bot**: Python + python-telegram-bot

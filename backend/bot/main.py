@@ -20,7 +20,8 @@ from core.ai_parsing import (
     frase_de_recurso,
     parse_mensagem,
 )
-from core.config import TELEGRAM_BOT_TOKEN
+from core.auth import criar_codigo_de_acesso
+from core.config import DASHBOARD_URL, TELEGRAM_BOT_TOKEN
 from core.db import SessionLocal
 from core.expenses import (
     apagar_despesa,
@@ -29,6 +30,7 @@ from core.expenses import (
     converter_valor_para_centimos,
     garantir_categorias_por_defeito,
     guardar_despesa,
+    obter_ou_criar_utilizador,
     obter_timezone,
     obter_ultima_despesa,
 )
@@ -50,6 +52,13 @@ FRASES_JA_NAO_EXISTE = [
 ]
 
 PERGUNTA_APAGAR = "\nApago mesmo esta?"
+
+TEXTO_ACESSO = (
+    "Aqui tens o acesso à dashboard 👇\n"
+    "{link}\n\n"
+    "Se a dashboard estiver aberta noutro dispositivo, escreve lá este código: {codigo}\n\n"
+    "Só serve uma vez e expira daqui a 5 minutos."
+)
 
 PERGUNTAS = {
     "valor": "Quanto foi? Escreve só o valor (ex: 35,50).",
@@ -125,11 +134,35 @@ def limpar_edicao(context):
     context.user_data.pop("despesa_a_editar", None)
 
 
+def mensagem_de_acesso(telegram_user_id, nome):
+    session = SessionLocal()
+    try:
+        utilizador = obter_ou_criar_utilizador(session, telegram_user_id, nome)
+        codigo = criar_codigo_de_acesso(session, utilizador.id)
+    finally:
+        session.close()
+
+    link = DASHBOARD_URL + "/login?code=" + codigo
+    return TEXTO_ACESSO.format(link=link, codigo=codigo)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     limpar_edicao(context)
     await update.message.reply_text(
         "Olá! Sou o Finas. Escreve-me as tuas despesas como falarias com um amigo. "
         'Por exemplo: "hoje gastei 30 euros na fnac".'
+    )
+    await update.message.reply_text(
+        mensagem_de_acesso(update.effective_user.id, update.effective_user.first_name),
+        disable_web_page_preview=True,
+    )
+
+
+async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    limpar_edicao(context)
+    await update.message.reply_text(
+        mensagem_de_acesso(update.effective_user.id, update.effective_user.first_name),
+        disable_web_page_preview=True,
     )
 
 
@@ -380,6 +413,8 @@ def main():
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("dashboard", dashboard))
+    app.add_handler(CommandHandler("entrar", dashboard))
     app.add_handler(CommandHandler("editar", editar))
     app.add_handler(CommandHandler("apagar", comando_apagar))
     app.add_handler(CallbackQueryHandler(apagar, pattern="^apagar:"))

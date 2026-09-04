@@ -1,4 +1,5 @@
 from bot.main import (
+    TEXTO_ACESSO,
     resumo_despesa,
     teclado_apagar,
     teclado_categorias,
@@ -86,3 +87,10 @@ def test_teclado_confirmar_apagar():
 
 def test_teclado_confirmar_apagar_so_tem_uma_linha():
     assert len(teclado_confirmar_apagar(1).inline_keyboard) == 1
+
+
+def test_texto_de_acesso_tem_link_e_codigo():
+    texto = TEXTO_ACESSO.format(link="http://localhost:3000/login?code=123456", codigo="123456")
+
+    assert "http://localhost:3000/login?code=123456" in texto
+    assert "123456" in texto

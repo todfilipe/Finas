@@ -24,3 +24,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Ficheiros gerados pelo Next para agentes
+dashboard/AGENTS.md
+dashboard/CLAUDE.md
