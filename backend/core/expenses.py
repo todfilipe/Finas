@@ -2,7 +2,12 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from core.ai_parsing import CATEGORIAS
+from core.categories import (
+    TIPO_DESPESA,
+    categoria_de_recurso,
+    garantir_categorias_do_utilizador,
+    procurar_por_nome,
+)
 from core.config import DEFAULT_CURRENCY, DEFAULT_TIMEZONE
 from core.models import Category, Expense, User
 
@@ -20,42 +25,26 @@ def obter_ou_criar_utilizador(session, telegram_user_id, nome=None):
     )
     session.add(utilizador)
     session.commit()
+    garantir_categorias_do_utilizador(session, utilizador.id)
     return utilizador
 
 
-def garantir_categorias_por_defeito(session):
-    for nome in CATEGORIAS:
-        existe = session.scalar(
-            select(Category).where(Category.name == nome, Category.is_default.is_(True))
-        )
-        if existe is None:
-            session.add(Category(name=nome, is_default=True))
+def obter_ou_criar_categoria(session, user_id, nome, tipo=TIPO_DESPESA):
+    if nome is not None:
+        categoria = procurar_por_nome(session, user_id, nome, tipo)
+        if categoria is not None:
+            return categoria
 
-    session.commit()
-
-
-def obter_ou_criar_categoria(session, nome):
-    if nome not in CATEGORIAS:
-        nome = "Outros"
-
-    categoria = session.scalar(
-        select(Category).where(Category.name == nome, Category.is_default.is_(True))
-    )
-    if categoria is not None:
-        return categoria
-
-    categoria = Category(name=nome, is_default=True)
-    session.add(categoria)
-    session.commit()
-    return categoria
+    return categoria_de_recurso(session, user_id, tipo)
 
 
 def guardar_despesa(session, telegram_user_id, despesa, raw_message=None, nome=None):
     utilizador = obter_ou_criar_utilizador(session, telegram_user_id, nome)
-    categoria = obter_ou_criar_categoria(session, despesa.category)
+    categoria = obter_ou_criar_categoria(session, utilizador.id, despesa.category, despesa.kind)
 
     nova = Expense(
         user_id=utilizador.id,
+        kind=despesa.kind,
         amount_cents=despesa.amount_cents,
         currency=despesa.currency,
         category_id=categoria.id,
@@ -72,13 +61,9 @@ def guardar_despesa(session, telegram_user_id, despesa, raw_message=None, nome=N
     return nova
 
 
-def apagar_despesa(session, despesa_id, telegram_user_id):
-    utilizador = session.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
-    if utilizador is None:
-        return False
-
+def apagar_despesa_do_utilizador(session, despesa_id, user_id):
     despesa = session.scalar(
-        select(Expense).where(Expense.id == despesa_id, Expense.user_id == utilizador.id)
+        select(Expense).where(Expense.id == despesa_id, Expense.user_id == user_id)
     )
     if despesa is None:
         return False
@@ -88,12 +73,34 @@ def apagar_despesa(session, despesa_id, telegram_user_id):
     return True
 
 
+def apagar_despesa(session, despesa_id, telegram_user_id):
+    utilizador = session.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
+    if utilizador is None:
+        return False
+
+    return apagar_despesa_do_utilizador(session, despesa_id, utilizador.id)
+
+
 def obter_timezone(session, telegram_user_id):
     utilizador = session.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
     if utilizador is None:
         return DEFAULT_TIMEZONE
 
     return utilizador.timezone
+
+
+def montar_resumo(session, despesa):
+    categoria = session.get(Category, despesa.category_id)
+
+    return {
+        "id": despesa.id,
+        "kind": despesa.kind,
+        "amount_cents": despesa.amount_cents,
+        "currency": despesa.currency,
+        "category": categoria.name if categoria is not None else None,
+        "merchant": despesa.merchant,
+        "date": despesa.expense_date.isoformat(),
+    }
 
 
 def obter_ultima_despesa(session, telegram_user_id):
@@ -107,16 +114,26 @@ def obter_ultima_despesa(session, telegram_user_id):
     if despesa is None:
         return None
 
-    categoria = session.get(Category, despesa.category_id)
+    return montar_resumo(session, despesa)
 
-    return {
-        "id": despesa.id,
-        "amount_cents": despesa.amount_cents,
-        "currency": despesa.currency,
-        "category": categoria.name if categoria is not None else None,
-        "merchant": despesa.merchant,
-        "date": despesa.expense_date.isoformat(),
-    }
+
+def obter_despesas_por_ids(session, telegram_user_id, ids):
+    if not ids:
+        return []
+
+    utilizador = session.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
+    if utilizador is None:
+        return []
+
+    resumos = []
+    for despesa_id in ids:
+        despesa = session.scalar(
+            select(Expense).where(Expense.id == despesa_id, Expense.user_id == utilizador.id)
+        )
+        if despesa is not None:
+            resumos.append(montar_resumo(session, despesa))
+
+    return resumos
 
 
 def atualizar_despesa(session, despesa_id, telegram_user_id, campos):
@@ -124,8 +141,12 @@ def atualizar_despesa(session, despesa_id, telegram_user_id, campos):
     if utilizador is None:
         return None
 
+    return atualizar_despesa_do_utilizador(session, despesa_id, utilizador.id, campos)
+
+
+def atualizar_despesa_do_utilizador(session, despesa_id, user_id, campos):
     despesa = session.scalar(
-        select(Expense).where(Expense.id == despesa_id, Expense.user_id == utilizador.id)
+        select(Expense).where(Expense.id == despesa_id, Expense.user_id == user_id)
     )
     if despesa is None:
         return None
@@ -135,8 +156,11 @@ def atualizar_despesa(session, despesa_id, telegram_user_id, campos):
     if "currency" in campos:
         despesa.currency = campos["currency"]
     if "category" in campos:
-        categoria = obter_ou_criar_categoria(session, campos["category"])
-        despesa.category_id = categoria.id
+        if campos["category"] is None:
+            despesa.category_id = None
+        else:
+            categoria = obter_ou_criar_categoria(session, user_id, campos["category"], despesa.kind)
+            despesa.category_id = categoria.id
     if "subcategory" in campos:
         despesa.subcategory = campos["subcategory"]
     if "merchant" in campos:

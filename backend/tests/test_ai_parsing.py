@@ -3,12 +3,14 @@ from datetime import date
 from core.ai_parsing import (
     CATEGORIAS,
     FRASES_DE_RECURSO,
+    MAX_DESPESAS,
+    DespesaDaIA,
     RespostaIA,
     aplicar_limiar_confianca,
     campos_da_correcao,
-    construir_despesa_nova,
+    construir_despesas_novas,
     converter_data,
-    descrever_ultima_despesa,
+    descrever_ultimas_despesas,
     falta_valor,
     frase_de_recurso,
     hoje_do_utilizador,
@@ -28,48 +30,62 @@ def test_prompt_tem_categorias_e_data():
     assert "ainda não tem nenhuma despesa" in prompt
 
 
-def test_prompt_com_ultima_despesa():
-    ultima_despesa = {
+def fazer_resumo(**campos):
+    base = {
+        "id": 1,
         "amount_cents": 3000,
         "currency": "EUR",
         "category": "Tecnologia",
         "merchant": "Fnac",
         "date": "2026-09-01",
     }
-    prompt = montar_prompt("Europe/Lisbon", ultima_despesa)
+    base.update(campos)
+    return base
+
+
+def test_prompt_com_ultima_despesa():
+    prompt = montar_prompt("Europe/Lisbon", [fazer_resumo()])
     assert "30.00 EUR" in prompt
     assert "Fnac" in prompt
     assert "e_correcao" in prompt
+    assert "Última despesa registada" in prompt
+
+
+def test_prompt_com_varias_despesas_da_mesma_mensagem():
+    prompt = montar_prompt(
+        "Europe/Lisbon",
+        [
+            fazer_resumo(id=1, amount_cents=1000, merchant="Café"),
+            fazer_resumo(id=2, amount_cents=2000, merchant="Tasca"),
+        ],
+    )
+
+    assert "Últimas despesas registadas" in prompt
+    assert "10.00 EUR" in prompt
+    assert "20.00 EUR" in prompt
+    assert "é o bot que pergunta" in prompt
 
 
 def test_descrever_sem_despesa():
-    assert "ainda não tem" in descrever_ultima_despesa(None)
+    assert "ainda não tem" in descrever_ultimas_despesas(None)
+    assert "ainda não tem" in descrever_ultimas_despesas([])
 
 
-def test_resposta_ia_aceita_campos_nulos():
+def test_resposta_ia_sem_despesas():
     resposta = RespostaIA(
         e_despesa=False,
         e_correcao=False,
-        amount_cents=None,
-        currency=None,
-        category=None,
-        subcategory=None,
-        merchant=None,
-        description=None,
-        date=None,
-        payment_method=None,
-        confidence=None,
-        needs_confirmation=False,
+        despesas=[],
         resposta="Bom dia!",
     )
     assert resposta.e_despesa is False
+    assert resposta.despesas == []
     assert resposta.resposta == "Bom dia!"
 
 
-def fazer_resposta(**campos):
+def fazer_despesa_da_ia(**campos):
     base = {
-        "e_despesa": True,
-        "e_correcao": False,
+        "kind": "expense",
         "amount_cents": 3000,
         "currency": "EUR",
         "category": "Tecnologia",
@@ -80,30 +96,50 @@ def fazer_resposta(**campos):
         "payment_method": None,
         "confidence": 0.9,
         "needs_confirmation": False,
-        "resposta": "Anotado!",
     }
     base.update(campos)
-    return RespostaIA(**base)
+    return DespesaDaIA(**base)
+
+
+def fazer_resposta(**campos):
+    base = {"e_despesa": True, "e_correcao": False, "resposta": "Anotado!"}
+    despesas = campos.pop("despesas", None)
+
+    da_despesa = {}
+    for nome in list(campos.keys()):
+        if nome not in base:
+            da_despesa[nome] = campos.pop(nome)
+
+    base.update(campos)
+
+    if despesas is None:
+        despesas = [fazer_despesa_da_ia(**da_despesa)]
+
+    return RespostaIA(despesas=despesas, **base)
+
+
+def primeira(resultado):
+    return resultado.despesas[0]
 
 
 def test_categoria_invalida_vira_outros():
     resultado = normalizar_categoria(fazer_resposta(category="Ginásio"))
-    assert resultado.category == "Outros"
+    assert primeira(resultado).category == "Outros"
 
 
 def test_despesa_nova_sem_categoria_vira_outros():
     resultado = normalizar_categoria(fazer_resposta(category=None))
-    assert resultado.category == "Outros"
+    assert primeira(resultado).category == "Outros"
 
 
 def test_correcao_sem_categoria_fica_a_null():
     resultado = normalizar_categoria(fazer_resposta(e_correcao=True, category=None))
-    assert resultado.category is None
+    assert primeira(resultado).category is None
 
 
 def test_nao_despesa_fica_a_null():
     resultado = normalizar_categoria(fazer_resposta(e_despesa=False, category=None))
-    assert resultado.category is None
+    assert primeira(resultado).category is None
 
 
 def test_converter_data_valida():
@@ -123,39 +159,96 @@ def test_limpar_moeda():
 
 def test_confianca_baixa_pede_confirmacao():
     resultado = aplicar_limiar_confianca(fazer_resposta(confidence=0.4))
-    assert resultado.needs_confirmation is True
+    assert primeira(resultado).needs_confirmation is True
 
 
 def test_confianca_alta_nao_mexe():
     resultado = aplicar_limiar_confianca(fazer_resposta(confidence=0.9))
-    assert resultado.needs_confirmation is False
+    assert primeira(resultado).needs_confirmation is False
+
+
+def test_confianca_baixa_so_marca_a_despesa_certa():
+    resultado = aplicar_limiar_confianca(
+        fazer_resposta(
+            despesas=[
+                fazer_despesa_da_ia(confidence=0.9),
+                fazer_despesa_da_ia(confidence=0.3),
+            ]
+        )
+    )
+
+    assert resultado.despesas[0].needs_confirmation is False
+    assert resultado.despesas[1].needs_confirmation is True
 
 
 def test_falta_valor():
-    assert falta_valor(fazer_resposta(amount_cents=None)) is True
-    assert falta_valor(fazer_resposta(amount_cents=0)) is True
-    assert falta_valor(fazer_resposta(amount_cents=3000)) is False
-    assert falta_valor(fazer_resposta(e_despesa=False, amount_cents=None)) is False
-    assert falta_valor(fazer_resposta(e_correcao=True, amount_cents=None)) is False
+    assert falta_valor(fazer_despesa_da_ia(amount_cents=None)) is True
+    assert falta_valor(fazer_despesa_da_ia(amount_cents=0)) is True
+    assert falta_valor(fazer_despesa_da_ia(amount_cents=3000)) is False
 
 
-def test_construir_despesa_nova():
-    despesa = construir_despesa_nova(fazer_resposta())
-    assert despesa.amount_cents == 3000
-    assert despesa.currency == "EUR"
-    assert despesa.category == "Tecnologia"
-    assert despesa.expense_date == date(2026, 9, 3)
+def test_construir_despesas_novas():
+    despesas = construir_despesas_novas(fazer_resposta())
+    assert len(despesas) == 1
+    assert despesas[0].amount_cents == 3000
+    assert despesas[0].currency == "EUR"
+    assert despesas[0].category == "Tecnologia"
+    assert despesas[0].expense_date == date(2026, 9, 3)
 
 
-def test_construir_despesa_nova_sem_data_usa_hoje():
-    despesa = construir_despesa_nova(fazer_resposta(date=None), "Europe/Lisbon")
-    assert despesa.expense_date == hoje_do_utilizador("Europe/Lisbon")
+def test_construir_varias_despesas():
+    resultado = fazer_resposta(
+        despesas=[
+            fazer_despesa_da_ia(amount_cents=1000, merchant="Café", category="Alimentação"),
+            fazer_despesa_da_ia(amount_cents=2000, merchant=None, description="almoço"),
+        ]
+    )
+
+    despesas = construir_despesas_novas(resultado)
+
+    assert len(despesas) == 2
+    assert despesas[0].amount_cents == 1000
+    assert despesas[0].merchant == "Café"
+    assert despesas[1].amount_cents == 2000
+    assert despesas[1].description == "almoço"
 
 
-def test_construir_despesa_nova_devolve_none_quando_falta_valor():
-    assert construir_despesa_nova(fazer_resposta(amount_cents=None)) is None
-    assert construir_despesa_nova(fazer_resposta(e_despesa=False)) is None
-    assert construir_despesa_nova(fazer_resposta(e_correcao=True)) is None
+def test_construir_despesas_ignora_as_que_nao_tem_valor():
+    resultado = fazer_resposta(
+        despesas=[
+            fazer_despesa_da_ia(amount_cents=1000),
+            fazer_despesa_da_ia(amount_cents=None),
+            fazer_despesa_da_ia(amount_cents=2000),
+        ]
+    )
+
+    despesas = construir_despesas_novas(resultado)
+
+    assert len(despesas) == 2
+    assert despesas[0].amount_cents == 1000
+    assert despesas[1].amount_cents == 2000
+
+
+def test_construir_despesas_corta_no_maximo():
+    muitas = []
+    for _ in range(MAX_DESPESAS + 3):
+        muitas.append(fazer_despesa_da_ia())
+
+    despesas = construir_despesas_novas(fazer_resposta(despesas=muitas))
+
+    assert len(despesas) == MAX_DESPESAS
+
+
+def test_construir_despesas_novas_sem_data_usa_hoje():
+    despesas = construir_despesas_novas(fazer_resposta(date=None), "Europe/Lisbon")
+    assert despesas[0].expense_date == hoje_do_utilizador("Europe/Lisbon")
+
+
+def test_construir_despesas_novas_devolve_lista_vazia():
+    assert construir_despesas_novas(fazer_resposta(amount_cents=None)) == []
+    assert construir_despesas_novas(fazer_resposta(e_despesa=False)) == []
+    assert construir_despesas_novas(fazer_resposta(e_correcao=True)) == []
+    assert construir_despesas_novas(fazer_resposta(despesas=[])) == []
 
 
 def test_campos_da_correcao_so_traz_o_que_mudou():
@@ -185,6 +278,10 @@ def test_campos_da_correcao_com_valor_e_data():
 
 def test_campos_da_correcao_vazio_se_nao_for_correcao():
     assert campos_da_correcao(fazer_resposta()) == {}
+
+
+def test_campos_da_correcao_vazio_se_nao_vier_despesa():
+    assert campos_da_correcao(fazer_resposta(e_correcao=True, despesas=[])) == {}
 
 
 def test_frase_de_recurso_vem_da_lista():
@@ -223,18 +320,18 @@ def test_limitar_ao_dia_de_hoje():
 
 
 def test_despesa_nova_com_data_relativa_ja_resolvida():
-    despesa = construir_despesa_nova(fazer_resposta(date="2026-08-31"), "Europe/Lisbon")
-    assert despesa.expense_date == date(2026, 8, 31)
+    despesas = construir_despesas_novas(fazer_resposta(date="2026-08-31"), "Europe/Lisbon")
+    assert despesas[0].expense_date == date(2026, 8, 31)
 
 
 def test_despesa_nova_sem_data_fica_com_hoje():
-    despesa = construir_despesa_nova(fazer_resposta(date=None), "Europe/Lisbon")
-    assert despesa.expense_date == hoje_do_utilizador("Europe/Lisbon")
+    despesas = construir_despesas_novas(fazer_resposta(date=None), "Europe/Lisbon")
+    assert despesas[0].expense_date == hoje_do_utilizador("Europe/Lisbon")
 
 
 def test_despesa_nova_com_data_no_futuro_fica_com_hoje():
-    despesa = construir_despesa_nova(fazer_resposta(date="2099-05-05"), "Europe/Lisbon")
-    assert despesa.expense_date == hoje_do_utilizador("Europe/Lisbon")
+    despesas = construir_despesas_novas(fazer_resposta(date="2099-05-05"), "Europe/Lisbon")
+    assert despesas[0].expense_date == hoje_do_utilizador("Europe/Lisbon")
 
 
 def test_correcao_com_data_no_futuro_fica_com_hoje():
@@ -272,12 +369,28 @@ def test_lista_de_categorias_por_defeito():
 
 def test_categoria_invalida_da_ia_vira_outros():
     resultado = normalizar_categoria(fazer_resposta(category="Ginásio"))
-    assert resultado.category == "Outros"
+    assert primeira(resultado).category == "Outros"
 
 
 def test_categoria_valida_da_ia_mantem_se():
     resultado = normalizar_categoria(fazer_resposta(category="Lazer"))
-    assert resultado.category == "Lazer"
+    assert primeira(resultado).category == "Lazer"
+
+
+def test_normalizar_categoria_mexe_em_todas_as_despesas():
+    resultado = normalizar_categoria(
+        fazer_resposta(
+            despesas=[
+                fazer_despesa_da_ia(category="Ginásio"),
+                fazer_despesa_da_ia(category=None),
+                fazer_despesa_da_ia(category="Lazer"),
+            ]
+        )
+    )
+
+    assert primeira(resultado).category == "Outros"
+    assert resultado.despesas[1].category == "Outros"
+    assert resultado.despesas[2].category == "Lazer"
 
 
 def test_nao_ha_travessoes_nas_frases_de_recurso():

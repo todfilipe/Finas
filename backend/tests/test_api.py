@@ -168,10 +168,271 @@ def test_mes_invalido(cliente, session):
     assert resposta.status_code == 400
 
 
+def nomes_das_categorias(cliente):
+    nomes = []
+    for categoria in cliente.get("/categories").json():
+        nomes.append(categoria["name"])
+
+    return nomes
+
+
+def categoria_chamada(cliente, nome):
+    for categoria in cliente.get("/categories").json():
+        if categoria["name"] == nome:
+            return categoria
+
+    return None
+
+
 def test_categorias(cliente, session):
     entrar(cliente, session)
 
     resposta = cliente.get("/categories")
 
     assert resposta.status_code == 200
-    assert "Alimentação" in resposta.json()
+    assert "Alimentação" in nomes_das_categorias(cliente)
+
+
+def test_categorias_trazem_totais(cliente, session):
+    entrar(cliente, session)
+
+    alimentacao = categoria_chamada(cliente, "Alimentação")
+    casa = categoria_chamada(cliente, "Casa")
+
+    assert alimentacao["count"] == 2
+    assert alimentacao["total_cents"] == 1750
+    assert casa["count"] == 0
+    assert casa["total_cents"] == 0
+
+
+def test_criar_categoria(cliente, session):
+    entrar(cliente, session)
+
+    resposta = cliente.post("/categories", json={"name": "  Ginásio  "})
+
+    assert resposta.status_code == 201
+    assert resposta.json()["name"] == "Ginásio"
+    assert resposta.json()["is_default"] is False
+    assert "Ginásio" in nomes_das_categorias(cliente)
+
+
+def test_criar_categoria_repetida(cliente, session):
+    entrar(cliente, session)
+
+    resposta = cliente.post("/categories", json={"name": "alimentação"})
+
+    assert resposta.status_code == 400
+
+
+def test_criar_categoria_sem_nome(cliente, session):
+    entrar(cliente, session)
+
+    assert cliente.post("/categories", json={"name": "   "}).status_code == 400
+    assert cliente.post("/categories", json={"name": "a" * 101}).status_code == 400
+
+
+def test_renomear_categoria(cliente, session):
+    entrar(cliente, session)
+    lazer = categoria_chamada(cliente, "Lazer")
+
+    resposta = cliente.patch("/categories/" + str(lazer["id"]), json={"name": "Saídas"})
+
+    assert resposta.status_code == 200
+    assert resposta.json()["name"] == "Saídas"
+    assert "Lazer" not in nomes_das_categorias(cliente)
+
+
+def test_renomear_para_um_nome_que_ja_existe(cliente, session):
+    entrar(cliente, session)
+    lazer = categoria_chamada(cliente, "Lazer")
+
+    resposta = cliente.patch("/categories/" + str(lazer["id"]), json={"name": "Casa"})
+
+    assert resposta.status_code == 400
+
+
+def test_mesclar_categorias(cliente, session):
+    entrar(cliente, session)
+    tecnologia = categoria_chamada(cliente, "Tecnologia")
+    casa = categoria_chamada(cliente, "Casa")
+
+    resposta = cliente.post(
+        "/categories/" + str(tecnologia["id"]) + "/merge", json={"target_id": casa["id"]}
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json()["name"] == "Casa"
+    assert resposta.json()["count"] == 1
+    assert resposta.json()["total_cents"] == 3000
+    assert "Tecnologia" not in nomes_das_categorias(cliente)
+
+
+def test_mesclar_uma_categoria_consigo_mesma(cliente, session):
+    entrar(cliente, session)
+    casa = categoria_chamada(cliente, "Casa")
+
+    resposta = cliente.post(
+        "/categories/" + str(casa["id"]) + "/merge", json={"target_id": casa["id"]}
+    )
+
+    assert resposta.status_code == 400
+
+
+def test_apagar_categoria_sem_despesas(cliente, session):
+    entrar(cliente, session)
+    casa = categoria_chamada(cliente, "Casa")
+
+    resposta = cliente.delete("/categories/" + str(casa["id"]))
+
+    assert resposta.status_code == 200
+    assert "Casa" not in nomes_das_categorias(cliente)
+
+
+def test_nao_apaga_categoria_com_despesas(cliente, session):
+    entrar(cliente, session)
+    tecnologia = categoria_chamada(cliente, "Tecnologia")
+
+    resposta = cliente.delete("/categories/" + str(tecnologia["id"]))
+
+    assert resposta.status_code == 400
+    assert "Tecnologia" in nomes_das_categorias(cliente)
+
+
+def test_nao_deixa_mexer_em_categoria_de_outro(cliente, session):
+    entrar(cliente, session, telegram_user_id=222)
+    do_outro = cliente.get("/categories").json()[0]
+
+    cliente.post("/auth/logout")
+    entrar(cliente, session, telegram_user_id=111)
+
+    caminho = "/categories/" + str(do_outro["id"])
+    assert cliente.patch(caminho, json={"name": "Roubada"}).status_code == 404
+    assert cliente.delete(caminho).status_code == 404
+
+
+def test_categorias_sem_sessao(cliente):
+    assert cliente.get("/categories").status_code == 401
+    assert cliente.post("/categories", json={"name": "Ginásio"}).status_code == 401
+
+
+def primeira_despesa(cliente):
+    return cliente.get("/expenses").json()["items"][0]
+
+
+def test_ver_uma_despesa(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    resposta = cliente.get("/expenses/" + str(despesa["id"]))
+
+    assert resposta.status_code == 200
+    assert resposta.json()["id"] == despesa["id"]
+
+
+def test_editar_despesa(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    resposta = cliente.patch(
+        "/expenses/" + str(despesa["id"]),
+        json={
+            "amount_cents": 1500,
+            "category": "Lazer",
+            "merchant": "Cinema",
+            "description": "bilhete",
+            "expense_date": "2026-09-11",
+        },
+    )
+
+    assert resposta.status_code == 200
+    dados = resposta.json()
+    assert dados["amount_cents"] == 1500
+    assert dados["category"] == "Lazer"
+    assert dados["merchant"] == "Cinema"
+    assert dados["description"] == "bilhete"
+    assert dados["expense_date"] == "2026-09-11"
+
+
+def test_editar_so_um_campo_nao_mexe_no_resto(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    dados = cliente.patch(
+        "/expenses/" + str(despesa["id"]), json={"description": "nova descrição"}
+    ).json()
+
+    assert dados["description"] == "nova descrição"
+    assert dados["amount_cents"] == despesa["amount_cents"]
+    assert dados["category"] == despesa["category"]
+
+
+def test_editar_texto_vazio_fica_a_nulo(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    dados = cliente.patch("/expenses/" + str(despesa["id"]), json={"merchant": "   "}).json()
+
+    assert dados["merchant"] is None
+
+
+def test_editar_com_valor_negativo(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    resposta = cliente.patch("/expenses/" + str(despesa["id"]), json={"amount_cents": -100})
+
+    assert resposta.status_code == 400
+
+
+def test_editar_com_categoria_invalida(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    resposta = cliente.patch("/expenses/" + str(despesa["id"]), json={"category": "Criptomoedas"})
+
+    assert resposta.status_code == 400
+
+
+def test_editar_sem_campos(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+
+    resposta = cliente.patch("/expenses/" + str(despesa["id"]), json={})
+
+    assert resposta.status_code == 400
+
+
+def test_apagar_despesa(cliente, session):
+    entrar(cliente, session)
+    despesa = primeira_despesa(cliente)
+    quantas = cliente.get("/expenses").json()["total"]
+
+    resposta = cliente.delete("/expenses/" + str(despesa["id"]))
+
+    assert resposta.status_code == 200
+    assert cliente.get("/expenses").json()["total"] == quantas - 1
+    assert cliente.get("/expenses/" + str(despesa["id"])).status_code == 404
+
+
+def test_nao_deixa_mexer_em_despesa_de_outro(cliente, session):
+    entrar(cliente, session, telegram_user_id=222)
+    despesa_do_outro = cliente.get("/expenses").json()["items"][0]
+
+    cliente.post("/auth/logout")
+    entrar(cliente, session, telegram_user_id=111)
+
+    assert cliente.get("/expenses/" + str(despesa_do_outro["id"])).status_code == 404
+    assert (
+        cliente.patch(
+            "/expenses/" + str(despesa_do_outro["id"]), json={"amount_cents": 1}
+        ).status_code
+        == 404
+    )
+    assert cliente.delete("/expenses/" + str(despesa_do_outro["id"])).status_code == 404
+
+
+def test_apagar_sem_sessao(cliente, session):
+    despesa_id = 1
+
+    assert cliente.delete("/expenses/" + str(despesa_id)).status_code == 401
+    assert cliente.patch("/expenses/" + str(despesa_id), json={"merchant": "x"}).status_code == 401

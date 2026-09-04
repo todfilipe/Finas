@@ -14,13 +14,13 @@ from telegram.ext import (
 )
 
 from core.ai_parsing import (
-    CATEGORIAS,
     campos_da_correcao,
-    construir_despesa_nova,
+    construir_despesas_novas,
     frase_de_recurso,
     parse_mensagem,
 )
 from core.auth import criar_codigo_de_acesso
+from core.categories import TIPO_RECEITA
 from core.config import DASHBOARD_URL, TELEGRAM_BOT_TOKEN
 from core.db import SessionLocal
 from core.expenses import (
@@ -28,12 +28,13 @@ from core.expenses import (
     atualizar_despesa,
     converter_data_escrita,
     converter_valor_para_centimos,
-    garantir_categorias_por_defeito,
     guardar_despesa,
+    obter_despesas_por_ids,
     obter_ou_criar_utilizador,
     obter_timezone,
     obter_ultima_despesa,
 )
+from core.queries import listar_categorias, obter_utilizador_por_telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -46,12 +47,26 @@ FRASES_APAGADA = [
     "Apagada. Como se nunca tivesse existido 😉",
 ]
 
+FRASES_APAGADAS = [
+    "Pronto, apaguei essas 👍",
+    "Já está, essas desapareceram.",
+    "Feito! Tirei essas da lista.",
+]
+
 FRASES_JA_NAO_EXISTE = [
     "Essa já não estava cá.",
     "Hmm, essa despesa já não existe.",
 ]
 
 PERGUNTA_APAGAR = "\nApago mesmo esta?"
+
+PERGUNTAS_QUAL_DESPESA = [
+    "A qual delas?",
+    "Qual delas queres corrigir?",
+    "Essa correção é para qual?",
+]
+
+FRASE_CORRECAO_PERDIDA = "Já não sei a qual delas te referias. Diz-me outra vez?"
 
 TEXTO_ACESSO = (
     "Aqui tens o acesso à dashboard 👇\n"
@@ -67,9 +82,29 @@ PERGUNTAS = {
 }
 
 
-def teclado_apagar(despesa_id):
-    botao = InlineKeyboardButton("Apagar", callback_data="apagar:" + str(despesa_id))
-    return InlineKeyboardMarkup([[botao]])
+def teclado_apagar(ids):
+    if len(ids) == 1:
+        etiqueta = "Apagar"
+    else:
+        etiqueta = "Apagar as " + str(len(ids))
+
+    dados = "apagar:" + "-".join(str(despesa_id) for despesa_id in ids)
+    return InlineKeyboardMarkup([[InlineKeyboardButton(etiqueta, callback_data=dados)]])
+
+
+def teclado_escolher_despesa(despesas):
+    linhas = []
+    for despesa in despesas:
+        linhas.append(
+            [
+                InlineKeyboardButton(
+                    resumo_curto(despesa), callback_data="correcao:" + str(despesa["id"])
+                )
+            ]
+        )
+
+    linhas.append([InlineKeyboardButton("Cancelar", callback_data="correcao:cancelar")])
+    return InlineKeyboardMarkup(linhas)
 
 
 def teclado_editar():
@@ -104,11 +139,11 @@ def teclado_cancelar():
     return InlineKeyboardMarkup([[botao]])
 
 
-def teclado_categorias():
+def teclado_categorias(nomes):
     linhas = []
-    for i in range(0, len(CATEGORIAS), 2):
+    for i in range(0, len(nomes), 2):
         linha = []
-        for nome in CATEGORIAS[i : i + 2]:
+        for nome in nomes[i : i + 2]:
             linha.append(InlineKeyboardButton(nome, callback_data="categoria:" + nome))
         linhas.append(linha)
 
@@ -116,9 +151,39 @@ def teclado_categorias():
     return InlineKeyboardMarkup(linhas)
 
 
+def categorias_do_utilizador(session, telegram_user_id, tipo=None):
+    utilizador = obter_utilizador_por_telegram(session, telegram_user_id)
+    if utilizador is None:
+        return []
+
+    if tipo is None:
+        return listar_categorias(session, utilizador.id)
+
+    return listar_categorias(session, utilizador.id, tipo)
+
+
+def sinal(despesa):
+    if despesa.get("kind") == TIPO_RECEITA:
+        return "+"
+
+    return ""
+
+
+def resumo_curto(despesa):
+    valor = despesa["amount_cents"] / 100
+    partes = ["%s%.2f %s" % (sinal(despesa), valor, despesa["currency"])]
+
+    if despesa["merchant"]:
+        partes.append(despesa["merchant"])
+    elif despesa["category"]:
+        partes.append(despesa["category"])
+
+    return " · ".join(partes)
+
+
 def resumo_despesa(despesa):
     valor = despesa["amount_cents"] / 100
-    partes = ["%.2f %s" % (valor, despesa["currency"])]
+    partes = ["%s%.2f %s" % (sinal(despesa), valor, despesa["currency"])]
 
     if despesa["merchant"]:
         partes.append(despesa["merchant"])
@@ -132,6 +197,11 @@ def resumo_despesa(despesa):
 def limpar_edicao(context):
     context.user_data.pop("campo_a_editar", None)
     context.user_data.pop("despesa_a_editar", None)
+
+
+def limpar_correcao(context):
+    context.user_data.pop("correcao_pendente", None)
+    context.user_data.pop("despesas_a_escolher", None)
 
 
 def mensagem_de_acesso(telegram_user_id, nome):
@@ -245,7 +315,18 @@ async def escolher_campo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["campo_a_editar"] = campo
 
     if campo == "categoria":
-        await query.edit_message_text("Escolhe a categoria:", reply_markup=teclado_categorias())
+        despesa_id = context.user_data.get("despesa_a_editar")
+        session = SessionLocal()
+        try:
+            resumos = obter_despesas_por_ids(session, update.effective_user.id, [despesa_id])
+            tipo = resumos[0]["kind"] if resumos else None
+            nomes = categorias_do_utilizador(session, update.effective_user.id, tipo)
+        finally:
+            session.close()
+
+        await query.edit_message_text(
+            "Escolhe a categoria:", reply_markup=teclado_categorias(nomes)
+        )
         return
 
     await query.edit_message_text(PERGUNTAS[campo], reply_markup=teclado_cancelar())
@@ -333,49 +414,67 @@ async def mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await aplicar_edicao(update, context)
         return
 
+    limpar_correcao(context)
+
     await update.message.chat.send_action(ChatAction.TYPING)
 
     session = SessionLocal()
     try:
-        ultima_despesa = obter_ultima_despesa(session, telegram_user_id)
+        candidatas = despesas_a_corrigir(session, telegram_user_id, context)
         timezone_utilizador = obter_timezone(session, telegram_user_id)
+        nomes = categorias_do_utilizador(session, telegram_user_id)
+        nomes_receita = categorias_do_utilizador(session, telegram_user_id, TIPO_RECEITA)
 
         try:
             resultado = await asyncio.to_thread(
-                parse_mensagem, texto, timezone_utilizador, ultima_despesa
+                parse_mensagem,
+                texto,
+                timezone_utilizador,
+                candidatas,
+                nomes,
+                nomes_receita,
             )
         except Exception:
             logger.exception("Não consegui processar a mensagem")
             await update.message.reply_text(frase_de_recurso())
             return
 
-        if resultado.e_correcao and ultima_despesa is not None:
-            atualizar_despesa(
-                session,
-                ultima_despesa["id"],
-                telegram_user_id,
-                campos_da_correcao(resultado, timezone_utilizador),
-            )
+        if resultado.e_correcao and candidatas:
+            campos = campos_da_correcao(resultado, timezone_utilizador)
+
+            if len(candidatas) > 1:
+                context.user_data["correcao_pendente"] = campos
+                context.user_data["despesas_a_escolher"] = [d["id"] for d in candidatas]
+                await update.message.reply_text(
+                    random.choice(PERGUNTAS_QUAL_DESPESA),
+                    reply_markup=teclado_escolher_despesa(candidatas),
+                )
+                return
+
+            atualizar_despesa(session, candidatas[0]["id"], telegram_user_id, campos)
             await update.message.reply_text(
-                resultado.resposta, reply_markup=teclado_apagar(ultima_despesa["id"])
+                resultado.resposta, reply_markup=teclado_apagar([candidatas[0]["id"]])
             )
             return
 
-        despesa = construir_despesa_nova(resultado, timezone_utilizador)
-        if despesa is None:
+        despesas = construir_despesas_novas(resultado, timezone_utilizador)
+        if not despesas:
             await update.message.reply_text(resultado.resposta)
             return
 
-        guardada = guardar_despesa(
-            session,
-            telegram_user_id,
-            despesa,
-            texto,
-            update.effective_user.first_name,
-        )
-        await update.message.reply_text(
-            resultado.resposta, reply_markup=teclado_apagar(guardada.id)
-        )
+        ids = []
+        for despesa in despesas:
+            guardada = guardar_despesa(
+                session,
+                telegram_user_id,
+                despesa,
+                texto,
+                update.effective_user.first_name,
+            )
+            ids.append(guardada.id)
+
+        context.user_data["ultimas_despesas"] = ids
+        await update.message.reply_text(resultado.resposta, reply_markup=teclado_apagar(ids))
     except Exception:
         logger.exception("Não consegui guardar a despesa")
         await update.message.reply_text(frase_de_recurso())
@@ -387,29 +486,80 @@ async def apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    despesa_id = int(query.data.split(":")[1])
+    ids = []
+    for parte in query.data.split(":")[1].split("-"):
+        ids.append(int(parte))
 
+    apagadas = 0
     session = SessionLocal()
     try:
-        apagou = apagar_despesa(session, despesa_id, update.effective_user.id)
+        for despesa_id in ids:
+            if apagar_despesa(session, despesa_id, update.effective_user.id):
+                apagadas = apagadas + 1
     finally:
         session.close()
 
-    if apagou:
+    if apagadas == 0:
+        await query.edit_message_text(random.choice(FRASES_JA_NAO_EXISTE))
+    elif apagadas == 1:
         await query.edit_message_text(random.choice(FRASES_APAGADA))
     else:
+        await query.edit_message_text(random.choice(FRASES_APAGADAS))
+
+
+def despesas_a_corrigir(session, telegram_user_id, context):
+    ids = context.user_data.get("ultimas_despesas") or []
+    candidatas = obter_despesas_por_ids(session, telegram_user_id, ids)
+    if candidatas:
+        return candidatas
+
+    ultima = obter_ultima_despesa(session, telegram_user_id)
+    if ultima is None:
+        return []
+
+    return [ultima]
+
+
+async def escolher_despesa_da_correcao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    escolha = query.data.split(":")[1]
+
+    if escolha == "cancelar":
+        limpar_correcao(context)
+        await query.edit_message_text("Ok, deixei ficar como estava.")
+        return
+
+    campos = context.user_data.get("correcao_pendente")
+    permitidas = context.user_data.get("despesas_a_escolher") or []
+    despesa_id = int(escolha)
+
+    if campos is None or despesa_id not in permitidas:
+        limpar_correcao(context)
+        await query.edit_message_text(FRASE_CORRECAO_PERDIDA)
+        return
+
+    session = SessionLocal()
+    try:
+        atualizada = atualizar_despesa(session, despesa_id, update.effective_user.id, campos)
+        resumos = obter_despesas_por_ids(session, update.effective_user.id, [despesa_id])
+    finally:
+        session.close()
+
+    limpar_correcao(context)
+
+    if atualizada is None or not resumos:
         await query.edit_message_text(random.choice(FRASES_JA_NAO_EXISTE))
+        return
+
+    context.user_data["ultimas_despesas"] = [despesa_id]
+    await query.edit_message_text("Feito! Agora está: " + resumo_despesa(resumos[0]))
 
 
 def main():
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("Falta TELEGRAM_BOT_TOKEN no .env")
-
-    session = SessionLocal()
-    try:
-        garantir_categorias_por_defeito(session)
-    finally:
-        session.close()
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -421,6 +571,7 @@ def main():
     app.add_handler(CallbackQueryHandler(escolher_campo, pattern="^editar:"))
     app.add_handler(CallbackQueryHandler(escolher_categoria, pattern="^categoria:"))
     app.add_handler(CallbackQueryHandler(confirmar_apagar, pattern="^confirmar:"))
+    app.add_handler(CallbackQueryHandler(escolher_despesa_da_correcao, pattern="^correcao:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensagem))
     app.run_polling()
 

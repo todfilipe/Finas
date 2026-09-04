@@ -16,7 +16,7 @@ export default function FiltrosDeDespesas({
   return (
     <form method="get" action="/transacoes" className="flex flex-col gap-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="sm:col-span-2">
+        <div>
           <label className={etiqueta} htmlFor="texto">
             Procurar
           </label>
@@ -27,6 +27,17 @@ export default function FiltrosDeDespesas({
             placeholder="café, jantar, uber..."
             className={caixa}
           />
+        </div>
+
+        <div>
+          <label className={etiqueta} htmlFor="tipo">
+            Tipo
+          </label>
+          <select id="tipo" name="tipo" defaultValue={filtros.tipo} className={caixa}>
+            <option value="">Tudo</option>
+            <option value="despesa">Despesas</option>
+            <option value="receita">Receitas</option>
+          </select>
         </div>
 
         <div>

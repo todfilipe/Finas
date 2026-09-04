@@ -1,6 +1,6 @@
 from datetime import date
 
-from core.expenses import garantir_categorias_por_defeito, guardar_despesa
+from core.expenses import guardar_despesa
 from core.queries import (
     contar_despesas,
     listar_categorias,
@@ -20,8 +20,6 @@ from tests.test_expenses import fazer_despesa
 
 
 def preparar_dados(session):
-    garantir_categorias_por_defeito(session)
-
     guardar_despesa(
         session,
         111,

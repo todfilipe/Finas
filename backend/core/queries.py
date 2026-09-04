@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import func, or_, select
 
+from core.categories import TIPO_DESPESA, TIPO_RECEITA
 from core.models import Category, Expense, User
 
 
@@ -43,12 +44,17 @@ def ultimos_meses(mes_final, quantos):
 def construir_condicoes(user_id, filtros):
     condicoes = [Expense.user_id == user_id]
 
+    if filtros.get("tipo"):
+        condicoes.append(Expense.kind == filtros["tipo"])
+
     if filtros.get("data_inicio") is not None:
         condicoes.append(Expense.expense_date >= filtros["data_inicio"])
     if filtros.get("data_fim") is not None:
         condicoes.append(Expense.expense_date <= filtros["data_fim"])
     if filtros.get("categoria"):
-        subconsulta = select(Category.id).where(Category.name == filtros["categoria"])
+        subconsulta = select(Category.id).where(
+            Category.user_id == user_id, Category.name == filtros["categoria"]
+        )
         condicoes.append(Expense.category_id.in_(subconsulta))
     if filtros.get("comerciante"):
         condicoes.append(Expense.merchant.ilike("%" + filtros["comerciante"] + "%"))
@@ -72,6 +78,7 @@ def construir_condicoes(user_id, filtros):
 def montar_despesa(despesa, nome_categoria):
     return {
         "id": despesa.id,
+        "kind": despesa.kind,
         "amount_cents": despesa.amount_cents,
         "currency": despesa.currency,
         "category": nome_categoria,
@@ -102,6 +109,21 @@ def listar_despesas(session, user_id, filtros, limite=50, salto=0):
     return despesas
 
 
+def obter_despesa(session, user_id, despesa_id):
+    consulta = (
+        select(Expense, Category.name)
+        .select_from(Expense)
+        .join(Category, Expense.category_id == Category.id, isouter=True)
+        .where(Expense.id == despesa_id, Expense.user_id == user_id)
+    )
+
+    linha = session.execute(consulta).first()
+    if linha is None:
+        return None
+
+    return montar_despesa(linha[0], linha[1])
+
+
 def contar_despesas(session, user_id, filtros):
     consulta = (
         select(func.count()).select_from(Expense).where(*construir_condicoes(user_id, filtros))
@@ -118,8 +140,8 @@ def somar_despesas(session, user_id, filtros):
     return session.scalar(consulta) or 0
 
 
-def totais_por_categoria(session, user_id, data_inicio, data_fim):
-    filtros = {"data_inicio": data_inicio, "data_fim": data_fim}
+def totais_por_categoria(session, user_id, data_inicio, data_fim, tipo=TIPO_DESPESA):
+    filtros = {"data_inicio": data_inicio, "data_fim": data_fim, "tipo": tipo}
     consulta = (
         select(Category.name, func.sum(Expense.amount_cents), func.count(Expense.id))
         .select_from(Expense)
@@ -143,7 +165,7 @@ def totais_por_categoria(session, user_id, data_inicio, data_fim):
 
 
 def totais_por_comerciante(session, user_id, data_inicio, data_fim, limite=5):
-    filtros = {"data_inicio": data_inicio, "data_fim": data_fim}
+    filtros = {"data_inicio": data_inicio, "data_fim": data_fim, "tipo": TIPO_DESPESA}
     consulta = (
         select(Expense.merchant, func.sum(Expense.amount_cents), func.count(Expense.id))
         .select_from(Expense)
@@ -160,11 +182,12 @@ def totais_por_comerciante(session, user_id, data_inicio, data_fim, limite=5):
     return totais
 
 
-def totais_por_mes(session, user_id, mes_final, quantos_meses):
+def totais_por_mes(session, user_id, mes_final, quantos_meses, tipo=TIPO_DESPESA):
     meses = ultimos_meses(mes_final, quantos_meses)
 
     consulta = select(Expense.expense_date, Expense.amount_cents).where(
         Expense.user_id == user_id,
+        Expense.kind == tipo,
         Expense.expense_date >= primeiro_dia_do_mes(meses[0]),
         Expense.expense_date <= ultimo_dia_do_mes(meses[-1]),
     )
@@ -190,27 +213,45 @@ def resumo_do_mes(session, user_id, mes):
     fim = ultimo_dia_do_mes(mes)
     anterior = mes_anterior(mes)
 
-    filtros = {"data_inicio": inicio, "data_fim": fim}
+    filtros = {"data_inicio": inicio, "data_fim": fim, "tipo": TIPO_DESPESA}
     filtros_anterior = {
         "data_inicio": primeiro_dia_do_mes(anterior),
         "data_fim": ultimo_dia_do_mes(anterior),
+        "tipo": TIPO_DESPESA,
     }
+    filtros_receita = {"data_inicio": inicio, "data_fim": fim, "tipo": TIPO_RECEITA}
+    filtros_receita_anterior = {
+        "data_inicio": primeiro_dia_do_mes(anterior),
+        "data_fim": ultimo_dia_do_mes(anterior),
+        "tipo": TIPO_RECEITA,
+    }
+
+    total = somar_despesas(session, user_id, filtros)
+    total_receita = somar_despesas(session, user_id, filtros_receita)
+    total_anterior = somar_despesas(session, user_id, filtros_anterior)
+    total_receita_anterior = somar_despesas(session, user_id, filtros_receita_anterior)
 
     return {
         "month": mes,
-        "total_cents": somar_despesas(session, user_id, filtros),
+        "total_cents": total,
         "count": contar_despesas(session, user_id, filtros),
+        "income_cents": total_receita,
+        "income_count": contar_despesas(session, user_id, filtros_receita),
+        "balance_cents": total_receita - total,
         "previous_month": anterior,
-        "previous_total_cents": somar_despesas(session, user_id, filtros_anterior),
+        "previous_total_cents": total_anterior,
+        "previous_income_cents": total_receita_anterior,
+        "previous_balance_cents": total_receita_anterior - total_anterior,
         "by_category": totais_por_categoria(session, user_id, inicio, fim),
+        "income_by_category": totais_por_categoria(session, user_id, inicio, fim, TIPO_RECEITA),
         "top_merchants": totais_por_comerciante(session, user_id, inicio, fim),
     }
 
 
-def listar_categorias(session, user_id):
+def listar_categorias(session, user_id, tipo=TIPO_DESPESA):
     consulta = (
         select(Category.name)
-        .where(or_(Category.user_id.is_(None), Category.user_id == user_id))
+        .where(Category.user_id == user_id, Category.kind == tipo)
         .order_by(Category.name)
     )
     return list(session.scalars(consulta).all())

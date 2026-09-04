@@ -5,7 +5,7 @@ export default function Cabecalho({
   ativo,
 }: {
   nome: string | null;
-  ativo: "resumo" | "transacoes";
+  ativo: "resumo" | "transacoes" | "categorias";
 }) {
   const normal = "text-sm text-preto/50 transition hover:text-preto";
   const selecionado = "text-sm text-preto";
@@ -23,6 +23,9 @@ export default function Cabecalho({
           </Link>
           <Link href="/transacoes" className={ativo === "transacoes" ? selecionado : normal}>
             Transações
+          </Link>
+          <Link href="/categorias" className={ativo === "categorias" ? selecionado : normal}>
+            Categorias
           </Link>
         </nav>
       </div>

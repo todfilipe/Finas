@@ -4,7 +4,12 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.schemas import (
+    AtualizacaoDeDespesa,
+    Categoria,
+    Despesa,
     ListaDeDespesas,
+    Mesclagem,
+    NomeDeCategoria,
     PedidoDeLogin,
     ResumoDoMes,
     TotalPorCategoria,
@@ -12,14 +17,26 @@ from api.schemas import (
     Utilizador,
 )
 from core.auth import criar_sessao, ler_sessao, validar_codigo
+from core.categories import (
+    TIPO_RECEITA,
+    TIPOS,
+    apagar_categoria,
+    criar_categoria,
+    listar_categorias_com_totais,
+    mesclar_categorias,
+    renomear_categoria,
+)
+from core.categories import TIPO_DESPESA
 from core.config import COOKIE_SECURE, CORS_ORIGINS, SESSION_DAYS
 from core.db import get_session
+from core.expenses import apagar_despesa_do_utilizador, atualizar_despesa_do_utilizador
 from core.models import User
 from core.queries import (
     contar_despesas,
     listar_categorias,
     listar_despesas,
     mes_de,
+    obter_despesa,
     primeiro_dia_do_mes,
     resumo_do_mes,
     somar_despesas,
@@ -132,9 +149,93 @@ def eu(utilizador=Depends(utilizador_atual)):
     return utilizador
 
 
-@app.get("/categories")
-def categorias(utilizador=Depends(utilizador_atual), session=Depends(get_session)):
-    return listar_categorias(session, utilizador.id)
+def validar_tipo(tipo):
+    if tipo is None:
+        return None
+
+    if tipo not in TIPOS:
+        raise HTTPException(status_code=400, detail="Tipo invalido")
+
+    return tipo
+
+
+@app.get("/categories", response_model=list[Categoria])
+def categorias(
+    utilizador=Depends(utilizador_atual),
+    session=Depends(get_session),
+    kind: str | None = None,
+):
+    return listar_categorias_com_totais(session, utilizador.id, validar_tipo(kind))
+
+
+def uma_categoria(session, user_id, categoria_id):
+    for categoria in listar_categorias_com_totais(session, user_id):
+        if categoria["id"] == categoria_id:
+            return categoria
+
+    raise HTTPException(status_code=404, detail="Categoria nao encontrada")
+
+
+def rebentar_se_falhou(erro):
+    if erro is None:
+        return
+
+    if erro == "Categoria nao encontrada":
+        raise HTTPException(status_code=404, detail=erro)
+
+    raise HTTPException(status_code=400, detail=erro)
+
+
+@app.post("/categories", response_model=Categoria, status_code=201)
+def nova_categoria(
+    pedido: NomeDeCategoria,
+    utilizador=Depends(utilizador_atual),
+    session=Depends(get_session),
+):
+    categoria, erro = criar_categoria(
+        session, utilizador.id, pedido.name, validar_tipo(pedido.kind)
+    )
+    rebentar_se_falhou(erro)
+
+    return uma_categoria(session, utilizador.id, categoria.id)
+
+
+@app.patch("/categories/{category_id}", response_model=Categoria)
+def renomear(
+    category_id: int,
+    pedido: NomeDeCategoria,
+    utilizador=Depends(utilizador_atual),
+    session=Depends(get_session),
+):
+    categoria, erro = renomear_categoria(session, utilizador.id, category_id, pedido.name)
+    rebentar_se_falhou(erro)
+
+    return uma_categoria(session, utilizador.id, categoria.id)
+
+
+@app.post("/categories/{category_id}/merge", response_model=Categoria)
+def mesclar(
+    category_id: int,
+    pedido: Mesclagem,
+    utilizador=Depends(utilizador_atual),
+    session=Depends(get_session),
+):
+    destino, erro = mesclar_categorias(session, utilizador.id, category_id, pedido.target_id)
+    rebentar_se_falhou(erro)
+
+    return uma_categoria(session, utilizador.id, destino.id)
+
+
+@app.delete("/categories/{category_id}")
+def remover_categoria(
+    category_id: int,
+    utilizador=Depends(utilizador_atual),
+    session=Depends(get_session),
+):
+    apagou, erro = apagar_categoria(session, utilizador.id, category_id)
+    rebentar_se_falhou(erro)
+
+    return {"ok": apagou}
 
 
 @app.get("/expenses", response_model=ListaDeDespesas)
@@ -143,6 +244,7 @@ def despesas(
     session=Depends(get_session),
     start_date: date | None = None,
     end_date: date | None = None,
+    kind: str | None = None,
     category: str | None = None,
     merchant: str | None = None,
     search: str | None = None,
@@ -154,6 +256,7 @@ def despesas(
     filtros = {
         "data_inicio": start_date,
         "data_fim": end_date,
+        "tipo": validar_tipo(kind),
         "categoria": category,
         "comerciante": merchant,
         "texto": search,
@@ -161,13 +264,108 @@ def despesas(
         "valor_max": max_cents,
     }
 
+    def somar_do_tipo(alvo):
+        if filtros["tipo"] is not None and filtros["tipo"] != alvo:
+            return 0
+
+        so_deste_tipo = dict(filtros)
+        so_deste_tipo["tipo"] = alvo
+        return somar_despesas(session, utilizador.id, so_deste_tipo)
+
     return {
         "total": contar_despesas(session, utilizador.id, filtros),
         "total_cents": somar_despesas(session, utilizador.id, filtros),
+        "expense_cents": somar_do_tipo(TIPO_DESPESA),
+        "income_cents": somar_do_tipo(TIPO_RECEITA),
         "limit": limit,
         "offset": offset,
         "items": listar_despesas(session, utilizador.id, filtros, limit, offset),
     }
+
+
+TEXTOS_DA_DESPESA = ["subcategory", "merchant", "description", "payment_method"]
+
+
+def limpar_texto(valor):
+    if valor is None:
+        return None
+
+    limpo = valor.strip()
+    if limpo == "":
+        return None
+
+    return limpo
+
+
+@app.get("/expenses/{expense_id}", response_model=Despesa)
+def uma_despesa(
+    expense_id: int,
+    utilizador=Depends(utilizador_atual),
+    session=Depends(get_session),
+):
+    despesa = obter_despesa(session, utilizador.id, expense_id)
+    if despesa is None:
+        raise HTTPException(status_code=404, detail="Despesa nao encontrada")
+
+    return despesa
+
+
+@app.patch("/expenses/{expense_id}", response_model=Despesa)
+def editar_despesa(
+    expense_id: int,
+    pedido: AtualizacaoDeDespesa,
+    utilizador=Depends(utilizador_atual),
+    session=Depends(get_session),
+):
+    campos = pedido.model_dump(exclude_unset=True)
+    if not campos:
+        raise HTTPException(status_code=400, detail="Nao ha nada para mudar")
+
+    atual = obter_despesa(session, utilizador.id, expense_id)
+    if atual is None:
+        raise HTTPException(status_code=404, detail="Despesa nao encontrada")
+
+    if "amount_cents" in campos:
+        if campos["amount_cents"] is None or campos["amount_cents"] <= 0:
+            raise HTTPException(status_code=400, detail="O valor tem de ser maior que zero")
+
+    if "expense_date" in campos and campos["expense_date"] is None:
+        raise HTTPException(status_code=400, detail="A data e obrigatoria")
+
+    if "currency" in campos:
+        if campos["currency"] is None:
+            raise HTTPException(status_code=400, detail="A moeda e obrigatoria")
+        campos["currency"] = campos["currency"].strip().upper()
+        if len(campos["currency"]) != 3:
+            raise HTTPException(status_code=400, detail="Moeda invalida")
+
+    if campos.get("category") is not None:
+        validas = listar_categorias(session, utilizador.id, atual["kind"])
+        if campos["category"] not in validas:
+            raise HTTPException(status_code=400, detail="Categoria invalida")
+
+    for nome in TEXTOS_DA_DESPESA:
+        if nome in campos:
+            campos[nome] = limpar_texto(campos[nome])
+
+    atualizada = atualizar_despesa_do_utilizador(session, expense_id, utilizador.id, campos)
+    if atualizada is None:
+        raise HTTPException(status_code=404, detail="Despesa nao encontrada")
+
+    return obter_despesa(session, utilizador.id, expense_id)
+
+
+@app.delete("/expenses/{expense_id}")
+def remover_despesa(
+    expense_id: int,
+    utilizador=Depends(utilizador_atual),
+    session=Depends(get_session),
+):
+    apagou = apagar_despesa_do_utilizador(session, expense_id, utilizador.id)
+    if not apagou:
+        raise HTTPException(status_code=404, detail="Despesa nao encontrada")
+
+    return {"ok": True}
 
 
 @app.get("/stats/summary", response_model=ResumoDoMes)

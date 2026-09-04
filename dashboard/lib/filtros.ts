@@ -1,5 +1,6 @@
 export type Filtros = {
   texto: string;
+  tipo: string;
   categoria: string;
   comerciante: string;
   de: string;
@@ -28,8 +29,11 @@ export function lerFiltros(parametros: Record<string, string | string[] | undefi
   const min = ler(parametros, "min");
   const max = ler(parametros, "max");
 
+  const tipo = ler(parametros, "tipo");
+
   return {
     texto: ler(parametros, "texto"),
+    tipo: tipo === "despesa" || tipo === "receita" ? tipo : "",
     categoria: ler(parametros, "categoria"),
     comerciante: ler(parametros, "comerciante"),
     de: dataValida(de) ? de : "",
@@ -53,6 +57,9 @@ export function consultaDaApi(filtros: Filtros, limite: number, pagina: number) 
 
   if (filtros.texto) {
     consulta.set("search", filtros.texto);
+  }
+  if (filtros.tipo) {
+    consulta.set("kind", filtros.tipo === "receita" ? "income" : "expense");
   }
   if (filtros.categoria) {
     consulta.set("category", filtros.categoria);
@@ -85,6 +92,9 @@ export function linkDaPagina(filtros: Filtros, pagina: number) {
   if (filtros.texto) {
     parametros.set("texto", filtros.texto);
   }
+  if (filtros.tipo) {
+    parametros.set("tipo", filtros.tipo);
+  }
   if (filtros.categoria) {
     parametros.set("categoria", filtros.categoria);
   }
@@ -114,6 +124,7 @@ export function linkDaPagina(filtros: Filtros, pagina: number) {
 export function haFiltros(filtros: Filtros) {
   return (
     filtros.texto !== "" ||
+    filtros.tipo !== "" ||
     filtros.categoria !== "" ||
     filtros.comerciante !== "" ||
     filtros.de !== "" ||
@@ -121,4 +132,21 @@ export function haFiltros(filtros: Filtros) {
     filtros.min !== "" ||
     filtros.max !== ""
   );
+}
+
+export function juntarAoLink(link: string, extra: string) {
+  return link + (link.includes("?") ? "&" : "?") + extra;
+}
+
+export function linkDaLinha(filtros: Filtros, pagina: number, acao: string, id: number) {
+  return juntarAoLink(linkDaPagina(filtros, pagina), acao + "=" + id);
+}
+
+export function lerId(parametros: Record<string, string | string[] | undefined>, nome: string) {
+  const numero = Number(ler(parametros, nome));
+  if (!Number.isFinite(numero) || numero < 1) {
+    return 0;
+  }
+
+  return Math.floor(numero);
 }

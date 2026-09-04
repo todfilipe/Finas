@@ -5,13 +5,17 @@ export default function GraficoDeCategorias({
   categorias,
   total,
   moeda,
+  singular = "despesa",
+  plural = "despesas",
 }: {
   categorias: TotalPorCategoria[];
   total: number;
   moeda: string;
+  singular?: string;
+  plural?: string;
 }) {
   if (categorias.length === 0) {
-    return <p className="text-preto/50">Ainda não há despesas neste mês.</p>;
+    return <p className="text-preto/50">Ainda não há {plural} neste mês.</p>;
   }
 
   let maior = 0;
@@ -43,7 +47,7 @@ export default function GraficoDeCategorias({
 
           <p className="mt-2 text-sm text-preto/50">
             {percentagem(categoria.total_cents, total)}% do mês · {categoria.count}{" "}
-            {categoria.count === 1 ? "despesa" : "despesas"}
+            {categoria.count === 1 ? singular : plural}
           </p>
         </div>
       ))}

@@ -5,23 +5,19 @@ from zoneinfo import ZoneInfo
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from core.categories import (
+    CATEGORIAS,
+    NOME_DE_RECURSO,
+    CATEGORIAS_RECEITA,
+    TIPO_DESPESA,
+    TIPO_RECEITA,
+    TIPOS,
+)
 from core.config import DEFAULT_CURRENCY, DEFAULT_TIMEZONE, OPENAI_API_KEY, OPENAI_MODEL
 
-CATEGORIAS = [
-    "Alimentação",
-    "Transporte",
-    "Casa",
-    "Saúde",
-    "Lazer",
-    "Tecnologia",
-    "Vestuário",
-    "Educação",
-    "Subscrições",
-    "Viagens",
-    "Outros",
-]
-
 LIMIAR_CONFIANCA = 0.6
+
+MAX_DESPESAS = 5
 
 FRASES_DE_RECURSO = [
     "Não apanhei bem essa. Dizes outra vez?",
@@ -31,9 +27,8 @@ FRASES_DE_RECURSO = [
 ]
 
 
-class RespostaIA(BaseModel):
-    e_despesa: bool
-    e_correcao: bool
+class DespesaDaIA(BaseModel):
+    kind: str
     amount_cents: int | None
     currency: str | None
     category: str | None
@@ -44,10 +39,17 @@ class RespostaIA(BaseModel):
     payment_method: str | None
     confidence: float | None
     needs_confirmation: bool
+
+
+class RespostaIA(BaseModel):
+    e_despesa: bool
+    e_correcao: bool
+    despesas: list[DespesaDaIA]
     resposta: str
 
 
 class DespesaNova(BaseModel):
+    kind: str
     amount_cents: int = Field(gt=0)
     currency: str = Field(min_length=3, max_length=3)
     category: str
@@ -60,24 +62,65 @@ class DespesaNova(BaseModel):
     needs_confirmation: bool
 
 
-def descrever_ultima_despesa(ultima_despesa):
-    if not ultima_despesa:
-        return "O utilizador ainda não tem nenhuma despesa registada."
-
-    valor = ultima_despesa.get("amount_cents", 0) / 100
+def descrever_uma_despesa(despesa):
+    valor = despesa.get("amount_cents", 0) / 100
     return (
-        "Última despesa registada por este utilizador:\n"
-        f"- valor: {valor:.2f} {ultima_despesa.get('currency', DEFAULT_CURRENCY)}\n"
-        f"- categoria: {ultima_despesa.get('category')}\n"
-        f"- comerciante: {ultima_despesa.get('merchant')}\n"
-        f"- data: {ultima_despesa.get('date')}\n"
-        "Se a mensagem nova for uma correção a esta despesa, marca e_correcao a true."
+        f"- {valor:.2f} {despesa.get('currency', DEFAULT_CURRENCY)}"
+        f", categoria {despesa.get('category')}"
+        f", comerciante {despesa.get('merchant')}"
+        f", data {despesa.get('date')}"
     )
 
 
-def montar_prompt(timezone_utilizador, ultima_despesa):
+def descrever_ultimas_despesas(ultimas_despesas):
+    if not ultimas_despesas:
+        return "O utilizador ainda não tem nenhuma despesa registada."
+
+    linhas = []
+    for despesa in ultimas_despesas:
+        linhas.append(descrever_uma_despesa(despesa))
+
+    if len(linhas) == 1:
+        titulo = "Última despesa registada por este utilizador:"
+        fim = "Se a mensagem nova for uma correção a esta despesa, marca e_correcao a true."
+    else:
+        titulo = "Últimas despesas registadas por este utilizador, todas da mesma mensagem:"
+        fim = (
+            "Se a mensagem nova for uma correção a alguma destas, marca e_correcao a true."
+            " Não tentes adivinhar a qual, é o bot que pergunta ao utilizador."
+        )
+
+    return titulo + "\n" + "\n".join(linhas) + "\n" + fim
+
+
+def nome_de_recurso(lista_de_categorias):
+    if "Outros" in lista_de_categorias:
+        return "Outros"
+
+    return lista_de_categorias[0]
+
+
+def categorias_do_tipo(despesas, receitas, tipo):
+    if tipo == TIPO_RECEITA:
+        return receitas or CATEGORIAS_RECEITA
+
+    return despesas or CATEGORIAS
+
+
+def montar_prompt(
+    timezone_utilizador,
+    ultimas_despesas,
+    lista_de_categorias=None,
+    lista_de_categorias_receita=None,
+):
+    de_despesa = categorias_do_tipo(lista_de_categorias, None, TIPO_DESPESA)
+    de_receita = categorias_do_tipo(None, lista_de_categorias_receita, TIPO_RECEITA)
+
     agora = datetime.now(ZoneInfo(timezone_utilizador))
-    categorias = ", ".join(CATEGORIAS)
+    categorias = ", ".join(de_despesa)
+    categorias_receita = ", ".join(de_receita)
+    recurso = nome_de_recurso(de_despesa)
+    recurso_receita = nome_de_recurso(de_receita)
 
     return f"""És o Finas, um bot de Telegram que ajuda a anotar despesas pessoais.
 
@@ -93,17 +136,32 @@ Regras para a data:
 - Se falarem de um dia da semana (ex: "na segunda"), foi o mais recente que já passou.
 - A data nunca pode ser no futuro. Se não perceberes a data, usa o dia de hoje.
 
-Categorias válidas (o campo category tem de ser exatamente uma destas): {categorias}
+Cada movimento tem um campo kind:
+- "expense" quando é dinheiro que saiu: gastei, paguei, comprei, custou, gastámos.
+- "income" quando é dinheiro que entrou: recebi, ganhei, entrou, caiu, pagaram-me, o salário, um reembolso, uma devolução, um presente em dinheiro.
+- Na dúvida, é uma despesa.
+
+Categorias válidas para despesas (kind expense): {categorias}
+Categorias válidas para receitas (kind income): {categorias_receita}
+O campo category tem de ser exatamente uma da lista do respetivo kind.
+
+O campo despesas é uma lista:
+- Se a mensagem não for uma despesa, a lista vem vazia.
+- Se a mensagem tiver uma despesa, a lista leva um item.
+- Se a mensagem tiver várias despesas, a lista leva um item por cada uma, pela ordem em que aparecem na frase.
+- Se for uma correção à última despesa, a lista leva um item só, com os campos que mudam preenchidos e os restantes a null.
+- No máximo {MAX_DESPESAS} despesas por mensagem. Se a pessoa disser mais do que isso, anota as primeiras {MAX_DESPESAS} e avisa no resposta que as outras ficaram de fora.
 
 Regras:
 - Valores sempre em cêntimos, inteiros (30 euros são 3000).
 - Se não disserem a moeda, assume {DEFAULT_CURRENCY}.
-- Se a mensagem não for uma despesa (um bom dia, uma pergunta, conversa), e_despesa é false, todos os campos da despesa ficam a null e o resposta é só uma reação curta e natural.
-- Se a mensagem for uma correção à última despesa registada, e_correcao é true e preenches só os campos que mudam, os restantes ficam a null.
-- Se não houver pista nenhuma sobre a categoria, usa "Outros" e needs_confirmation a true.
+- Se a mensagem não for uma despesa (um bom dia, uma pergunta, conversa), e_despesa é false, a lista despesas vem vazia e o resposta é só uma reação curta e natural.
+- Se a mensagem for uma correção à última despesa registada, e_correcao é true.
+- Cada despesa é independente: se só disserem o sítio de uma delas, não copies o comerciante de uma para a outra.
+- Se a data valer para todas ("ontem gastei 10 no café e 20 no almoço"), repete a mesma data em todas.
+- Se não houver pista nenhuma sobre a categoria, usa "{recurso}" nas despesas e "{recurso_receita}" nas receitas, com needs_confirmation a true.
 - Se a confiança for baixa (confidence abaixo de 0.6), needs_confirmation é true e o resposta vem em forma de pergunta.
-- Se não conseguires identificar um valor, e_despesa é false e o resposta pede para reformular, sem falar de erros técnicos.
-- Se a mensagem tiver mais do que uma despesa, anota só a primeira e avisa no resposta que por agora só consegues anotar uma de cada vez.
+- Se não conseguires identificar um valor, deixa essa despesa de fora da lista. Se ficares sem nenhuma, e_despesa é false e o resposta pede para reformular, sem falar de erros técnicos.
 
 Tom do campo resposta:
 - PT-PT informal, como um amigo a responder por mensagem, nunca como um recibo, um formulário ou um call center.
@@ -119,32 +177,60 @@ Exemplos de confirmação (varia entre estas e outras parecidas):
 - "Registei: 30€, Fnac (Tecnologia)."
 - "Tá guardado! Fnac, 30€."
 
+Exemplo de receita:
+- Utilizador: "recebi o ordenado, 1200"
+- Resposta: "Boa! 1200€ de salário anotados 🙌"
+
+Exemplos com várias despesas (confirma as duas, sem parecer uma lista de compras):
+- "Anotado! 10€ no café e 20€ no almoço, as duas em Alimentação."
+- "Boa, guardei as duas: 10 paus no café e 20 no almoço 👍"
+
 Exemplo de correção:
 - Utilizador: "não foi na fnac, foi no continente"
 - Resposta: "Ah, faz sentido! Corrigido: Continente (Alimentação), 30€."
 
-{descrever_ultima_despesa(ultima_despesa)}"""
+{descrever_ultimas_despesas(ultimas_despesas)}"""
 
 
-def normalizar_categoria(resultado):
-    if resultado.category is not None and resultado.category not in CATEGORIAS:
-        resultado.category = "Outros"
+def normalizar_categoria(resultado, lista_de_categorias=None, lista_de_categorias_receita=None):
+    for despesa in resultado.despesas:
+        if despesa.kind not in TIPOS:
+            despesa.kind = TIPO_DESPESA
 
-    if resultado.e_despesa and not resultado.e_correcao and resultado.category is None:
-        resultado.category = "Outros"
+        validas = categorias_do_tipo(lista_de_categorias, lista_de_categorias_receita, despesa.kind)
+        recurso = nome_de_recurso(validas)
+
+        if despesa.category is not None and despesa.category not in validas:
+            despesa.category = recurso
+
+        if resultado.e_despesa and not resultado.e_correcao and despesa.category is None:
+            despesa.category = recurso
 
     return resultado
 
 
-def parse_mensagem(texto, timezone_utilizador=DEFAULT_TIMEZONE, ultima_despesa=None):
+def parse_mensagem(
+    texto,
+    timezone_utilizador=DEFAULT_TIMEZONE,
+    ultimas_despesas=None,
+    lista_de_categorias=None,
+    lista_de_categorias_receita=None,
+):
     if not OPENAI_API_KEY:
         raise RuntimeError("Falta OPENAI_API_KEY no .env")
+
+    prompt = montar_prompt(
+        timezone_utilizador,
+        ultimas_despesas,
+        lista_de_categorias,
+        lista_de_categorias_receita,
+    )
 
     client = OpenAI(api_key=OPENAI_API_KEY)
     completion = client.chat.completions.parse(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": montar_prompt(timezone_utilizador, ultima_despesa)},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": texto},
         ],
         response_format=RespostaIA,
@@ -154,7 +240,8 @@ def parse_mensagem(texto, timezone_utilizador=DEFAULT_TIMEZONE, ultima_despesa=N
     if resultado is None:
         raise RuntimeError("A IA não devolveu um JSON válido")
 
-    return aplicar_limiar_confianca(normalizar_categoria(resultado))
+    normalizado = normalizar_categoria(resultado, lista_de_categorias, lista_de_categorias_receita)
+    return aplicar_limiar_confianca(normalizado)
 
 
 def converter_data(texto_data):
@@ -195,61 +282,68 @@ def limpar_moeda(currency):
 
 
 def aplicar_limiar_confianca(resultado):
-    if resultado.confidence is not None and resultado.confidence < LIMIAR_CONFIANCA:
-        resultado.needs_confirmation = True
+    for despesa in resultado.despesas:
+        if despesa.confidence is not None and despesa.confidence < LIMIAR_CONFIANCA:
+            despesa.needs_confirmation = True
 
     return resultado
 
 
-def falta_valor(resultado):
+def falta_valor(despesa):
+    return despesa.amount_cents is None or despesa.amount_cents <= 0
+
+
+def construir_despesas_novas(resultado, timezone_utilizador=DEFAULT_TIMEZONE):
     if not resultado.e_despesa or resultado.e_correcao:
-        return False
+        return []
 
-    return resultado.amount_cents is None or resultado.amount_cents <= 0
+    novas = []
+    for despesa in resultado.despesas[:MAX_DESPESAS]:
+        if falta_valor(despesa):
+            continue
 
+        novas.append(
+            DespesaNova(
+                kind=despesa.kind,
+                amount_cents=despesa.amount_cents,
+                currency=limpar_moeda(despesa.currency),
+                category=despesa.category or NOME_DE_RECURSO,
+                subcategory=despesa.subcategory,
+                merchant=despesa.merchant,
+                description=despesa.description,
+                expense_date=resolver_data(despesa.date, timezone_utilizador),
+                payment_method=despesa.payment_method,
+                confidence=despesa.confidence,
+                needs_confirmation=despesa.needs_confirmation,
+            )
+        )
 
-def construir_despesa_nova(resultado, timezone_utilizador=DEFAULT_TIMEZONE):
-    if not resultado.e_despesa or resultado.e_correcao:
-        return None
-
-    if falta_valor(resultado):
-        return None
-
-    return DespesaNova(
-        amount_cents=resultado.amount_cents,
-        currency=limpar_moeda(resultado.currency),
-        category=resultado.category or "Outros",
-        subcategory=resultado.subcategory,
-        merchant=resultado.merchant,
-        description=resultado.description,
-        expense_date=resolver_data(resultado.date, timezone_utilizador),
-        payment_method=resultado.payment_method,
-        confidence=resultado.confidence,
-        needs_confirmation=resultado.needs_confirmation,
-    )
+    return novas
 
 
 def campos_da_correcao(resultado, timezone_utilizador=DEFAULT_TIMEZONE):
-    if not resultado.e_correcao:
+    if not resultado.e_correcao or not resultado.despesas:
         return {}
 
-    campos = {}
-    if resultado.amount_cents is not None and resultado.amount_cents > 0:
-        campos["amount_cents"] = resultado.amount_cents
-    if resultado.currency is not None:
-        campos["currency"] = limpar_moeda(resultado.currency)
-    if resultado.category is not None:
-        campos["category"] = resultado.category
-    if resultado.subcategory is not None:
-        campos["subcategory"] = resultado.subcategory
-    if resultado.merchant is not None:
-        campos["merchant"] = resultado.merchant
-    if resultado.description is not None:
-        campos["description"] = resultado.description
-    if resultado.payment_method is not None:
-        campos["payment_method"] = resultado.payment_method
+    despesa = resultado.despesas[0]
 
-    data = converter_data(resultado.date)
+    campos = {}
+    if despesa.amount_cents is not None and despesa.amount_cents > 0:
+        campos["amount_cents"] = despesa.amount_cents
+    if despesa.currency is not None:
+        campos["currency"] = limpar_moeda(despesa.currency)
+    if despesa.category is not None:
+        campos["category"] = despesa.category
+    if despesa.subcategory is not None:
+        campos["subcategory"] = despesa.subcategory
+    if despesa.merchant is not None:
+        campos["merchant"] = despesa.merchant
+    if despesa.description is not None:
+        campos["description"] = despesa.description
+    if despesa.payment_method is not None:
+        campos["payment_method"] = despesa.payment_method
+
+    data = converter_data(despesa.date)
     if data is not None:
         campos["expense_date"] = limitar_ao_dia_de_hoje(data, timezone_utilizador)
 
