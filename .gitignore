@@ -6,6 +6,7 @@ venv/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.coverage
 
 # Node
 node_modules/
@@ -28,3 +29,6 @@ Thumbs.db
 # Ficheiros gerados pelo Next para agentes
 dashboard/AGENTS.md
 dashboard/CLAUDE.md
+
+# Backups da base de dados
+backups/

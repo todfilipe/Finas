@@ -3,9 +3,24 @@ from pathlib import Path
 
 TRAVESSAO = chr(8212)
 
-PASTAS_A_IGNORAR = [".venv", "__pycache__", ".git", "node_modules", ".ruff_cache", ".pytest_cache"]
+PASTAS_A_IGNORAR = [".venv", "__pycache__", ".git", "node_modules", ".ruff_cache", ".pytest_cache", ".next"]
 
-EXTENSOES = [".py", ".md", ".toml", ".yml", ".yaml", ".example", ".json", ".ts", ".tsx", ".sql"]
+EXTENSOES = [
+    ".py",
+    ".md",
+    ".toml",
+    ".yml",
+    ".yaml",
+    ".example",
+    ".json",
+    ".ts",
+    ".tsx",
+    ".sql",
+    ".sh",
+    ".html",
+    ".css",
+    ".js",
+]
 
 FICHEIROS_A_IGNORAR = ["AGENTS.md"]
 

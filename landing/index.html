@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finas, contas pessoais escritas como pensas nelas</title>
+<meta name="description" content="Tracker de contas pessoais por Telegram. Escreves a despesa em linguagem natural, uma IA percebe o valor e a categoria, e vês tudo numa dashboard web.">
+<link rel="canonical" href="https://finas.online/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://finas.online/">
+<meta property="og:site_name" content="Finas">
+<meta property="og:locale" content="pt_PT">
+<meta property="og:title" content="Finas, contas pessoais escritas como pensas nelas">
+<meta property="og:description" content="Escreves a despesa ao bot de Telegram como escreverias a um amigo. Uma IA percebe o valor, o sítio e a categoria, e vês tudo numa dashboard web.">
+<meta property="og:image" content="https://finas.online/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+<link rel="icon" type="image/png" sizes="512x512" href="img/icone-512.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="caixa nav-linha">
+    <a class="logo" href="#topo">Finas</a>
+    <nav class="nav-links">
+      <a href="#como-funciona">Como funciona</a>
+      <a href="https://dashboard.finas.online">Dashboard</a>
+      <a href="#open-source">Open source</a>
+    </nav>
+    <button class="botao botao-pequeno" data-abrir>Quero testar</button>
+  </div>
+</header>
+
+<section class="hero" id="topo">
+  <div class="caixa hero-grelha">
+    <div class="hero-texto revelar">
+      <p class="etiqueta">Bot de Telegram e dashboard web</p>
+      <h1>Escreve.<br>Ele trata<br>do resto.</h1>
+      <p class="chamada">
+        Contas pessoais sem app para abrir e sem formulários para preencher. Escreves como escreverias
+        a um amigo, uma IA percebe o valor, o sítio e a categoria, e guarda tudo por ti.
+      </p>
+      <div class="hero-botoes">
+        <button class="botao" data-abrir>Quero testar</button>
+        <a class="botao botao-vazio" href="https://github.com/todfilipe/Finas">Ver o código</a>
+      </div>
+      <p class="nota">Projeto pessoal open source. O acesso ao bot é dado a pedido.</p>
+    </div>
+
+    <div class="telemovel revelar">
+      <img src="img/telemovel.webp" width="996" height="1498" fetchpriority="high"
+           alt="Telemóvel com a conversa no Finas: uma despesa escrita em linguagem natural, a resposta do bot, e uma correção feita por texto">
+    </div>
+  </div>
+</section>
+
+<section class="escura" id="como-funciona">
+  <div class="caixa">
+    <h2 class="revelar">Três passos,<br>e já está.</h2>
+    <div class="passos">
+      <div class="passo revelar">
+        <span class="numero">01</span>
+        <h3>Escreves</h3>
+        <p>Uma frase normal no Telegram. Sem campos, sem menus, sem categorias para escolher à mão.</p>
+      </div>
+      <div class="passo revelar">
+        <span class="numero">02</span>
+        <h3>A IA percebe</h3>
+        <p>Valor, comerciante, data e categoria saem da frase já validados. Enganaste te? Corriges por texto, também em linguagem natural.</p>
+      </div>
+      <div class="passo revelar">
+        <span class="numero">03</span>
+        <h3>Vês tudo</h3>
+        <p>Na dashboard tens o saldo do mês, gastos por categoria, filtros e edição de qualquer movimento.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="dashboard">
+  <div class="caixa">
+    <div class="duas-colunas topo-seccao">
+      <h2 class="revelar">A conversa,<br>organizada.</h2>
+      <div class="revelar">
+        <p class="chamada">
+          O bot é só a entrada de dados. O histórico, os gráficos e as categorias vivem numa dashboard
+          web, com login sem password: pedes um código ao bot e entras.
+        </p>
+        <ul class="lista">
+          <li>Saldo do mês, com entradas e saídas lado a lado</li>
+          <li>Gastos por categoria e tendência dos últimos meses</li>
+          <li>Filtros por período, categoria, comerciante e texto livre</li>
+          <li>Editar ou apagar qualquer movimento</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="palco">
+      <figure class="janela janela-frente">
+        <div class="janela-topo">
+          <span class="bola"></span><span class="bola"></span><span class="bola"></span>
+          <span class="endereco">dashboard.finas.online</span>
+        </div>
+        <img src="img/dashboard-resumo.webp" width="1440" height="900" loading="lazy"
+             alt="Resumo mensal da dashboard do Finas, com saldo do mês e gastos por categoria">
+      </figure>
+
+      <figure class="janela janela-tras">
+        <div class="janela-topo">
+          <span class="bola"></span><span class="bola"></span><span class="bola"></span>
+          <span class="endereco">/transacoes</span>
+        </div>
+        <img src="img/dashboard-transacoes.webp" width="1440" height="900" loading="lazy"
+             alt="Lista de transações do Finas com filtros por tipo, categoria, comerciante e período">
+      </figure>
+    </div>
+
+    <p class="legenda">O resumo do mês e a lista de movimentos, na app a sério.</p>
+  </section>
+
+<section class="escura" id="open-source">
+  <div class="caixa">
+    <h2 class="revelar centrado">Feito à vista<br>de todos.</h2>
+    <p class="chamada centrado revelar">
+      O Finas é um projeto pessoal com o código aberto. Podes ler tudo, correr na tua máquina, ou
+      alojar a tua própria instância com o teu bot e a tua chave de IA.
+    </p>
+    <div class="stack revelar">
+      <span>Python</span>
+      <span>FastAPI</span>
+      <span>python-telegram-bot</span>
+      <span>PostgreSQL</span>
+      <span>SQLAlchemy</span>
+      <span>Next.js</span>
+      <span>TypeScript</span>
+      <span>Tailwind CSS</span>
+      <span>Docker</span>
+    </div>
+    <div class="centrado revelar">
+      <a class="botao botao-claro" href="https://github.com/todfilipe/Finas">Ver no GitHub</a>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="caixa centrado revelar">
+    <h2>Queres experimentar?</h2>
+    <p class="chamada centrado">
+      A instância que está no ar é pessoal, por isso o acesso ao bot é dado caso a caso. Se és uma
+      empresa ou um cliente e queres ver isto a funcionar a sério, fala comigo que eu dou te acesso.
+    </p>
+    <button class="botao" data-abrir>Falar comigo</button>
+  </div>
+</section>
+
+<footer>
+  <div class="caixa rodape">
+    <span class="logo">Finas</span>
+    <span class="tagline">Contas finas, sem stress.</span>
+    <a href="https://github.com/todfilipe/Finas">GitHub</a>
+  </div>
+</footer>
+
+<div class="overlay" id="contactos" hidden>
+  <div class="modal">
+    <button class="fechar" data-fechar aria-label="Fechar">&times;</button>
+    <h3>Vamos falar</h3>
+    <p>Escolhe o que te der mais jeito. Diz só que queres testar o Finas e eu trato do acesso ao bot.</p>
+    <div class="redes">
+      <a href="https://t.me/todfilipe">
+        <strong>Telegram</strong>
+        <span>@todfilipe</span>
+      </a>
+      <a id="email" href="#" data-nome="ola" data-dominio="finas.online">
+        <strong>Email</strong>
+        <span>ola (arroba) finas.online</span>
+      </a>
+      <a href="https://www.linkedin.com/in/todfilipe/">
+        <strong>LinkedIn</strong>
+        <span>/in/todfilipe</span>
+      </a>
+      <a href="https://github.com/todfilipe">
+        <strong>GitHub</strong>
+        <span>@todfilipe</span>
+      </a>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
