@@ -3,6 +3,10 @@ import type { NextRequest } from "next/server";
 
 import { API_URL } from "@/lib/api";
 
+function irPara(caminho: string) {
+  return new NextResponse(null, { status: 307, headers: { Location: caminho } });
+}
+
 export async function GET(request: NextRequest) {
   const codigo = request.nextUrl.searchParams.get("code") ?? "";
 
@@ -15,18 +19,18 @@ export async function GET(request: NextRequest) {
       cache: "no-store",
     });
   } catch {
-    return NextResponse.redirect(new URL("/login?erro=servidor", request.url));
+    return irPara("/login?erro=servidor");
   }
 
   if (resposta.status === 429) {
-    return NextResponse.redirect(new URL("/login?erro=tentativas", request.url));
+    return irPara("/login?erro=tentativas");
   }
 
   if (!resposta.ok) {
-    return NextResponse.redirect(new URL("/login?erro=codigo", request.url));
+    return irPara("/login?erro=codigo");
   }
 
-  const redirecionar = NextResponse.redirect(new URL("/", request.url));
+  const redirecionar = irPara("/");
   for (const cookie of resposta.headers.getSetCookie()) {
     redirecionar.headers.append("set-cookie", cookie);
   }
