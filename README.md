@@ -338,4 +338,4 @@ O registo por texto, receitas, correções, dashboard, gestão de categorias, te
   <a href="https://t.me/todfilipe">Fala comigo no Telegram</a> · <a href="https://finas.online">Visita o site</a>
 </p>
 
-<p align="center"><sub>Licença: ainda não definida num ficheiro de licença deste repositório.</sub></p>
+<p align="center"><sub>Distribuído sob a <a href="LICENSE">licença MIT</a>.</sub></p>
