@@ -294,7 +294,7 @@ def falta_valor(despesa):
 
 
 def construir_despesas_novas(resultado, timezone_utilizador=DEFAULT_TIMEZONE):
-    if not resultado.e_despesa or resultado.e_correcao:
+    if resultado.e_correcao:
         return []
 
     novas = []

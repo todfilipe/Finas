@@ -250,9 +250,18 @@ def test_construir_despesas_novas_sem_data_usa_hoje():
 
 def test_construir_despesas_novas_devolve_lista_vazia():
     assert construir_despesas_novas(fazer_resposta(amount_cents=None)) == []
-    assert construir_despesas_novas(fazer_resposta(e_despesa=False)) == []
     assert construir_despesas_novas(fazer_resposta(e_correcao=True)) == []
     assert construir_despesas_novas(fazer_resposta(despesas=[])) == []
+
+
+def test_construir_receita_mesmo_com_e_despesa_false():
+    resultado = fazer_resposta(e_despesa=False, kind="income", amount_cents=1000, category="Outros")
+
+    despesas = construir_despesas_novas(resultado)
+
+    assert len(despesas) == 1
+    assert despesas[0].kind == "income"
+    assert despesas[0].amount_cents == 1000
 
 
 def test_campos_da_correcao_so_traz_o_que_mudou():
