@@ -318,6 +318,60 @@ footer {
   height: auto;
 }
 
+.problema {
+  align-items: start;
+}
+
+.comparacao-titulo {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.5;
+  margin-bottom: 16px;
+}
+
+.riscados {
+  list-style: none;
+  margin-bottom: 48px;
+}
+
+.riscados li {
+  font-family: var(--titulo);
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  opacity: 0.4;
+}
+
+.frase {
+  font-family: var(--titulo);
+  font-weight: 600;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.remate {
+  font-size: 19px;
+  line-height: 1.55;
+  max-width: 620px;
+  margin-top: 80px;
+  padding-top: 32px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.com-linha .caixa {
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  padding-top: 120px;
+}
+
+.com-linha {
+  padding-top: 0;
+}
+
 .passos {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -459,6 +513,27 @@ footer {
 
 .final .botao {
   margin-top: 36px;
+}
+
+.secundaria {
+  font-size: 15px;
+  opacity: 0.6;
+  margin-top: 28px;
+}
+
+.ligacao {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ligacao:hover {
+  opacity: 0.7;
 }
 
 footer {
@@ -615,6 +690,18 @@ footer {
 
   .hero {
     padding-top: 128px;
+  }
+
+  .com-linha .caixa {
+    padding-top: 80px;
+  }
+
+  .riscados li {
+    font-size: 22px;
+  }
+
+  .remate {
+    margin-top: 56px;
   }
 
   .hero-texto {

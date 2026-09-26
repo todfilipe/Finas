@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Finas, contas pessoais escritas como pensas nelas</title>
-<meta name="description" content="Tracker de contas pessoais por Telegram. Escreves a despesa em linguagem natural, uma IA percebe o valor e a categoria, e vês tudo numa dashboard web.">
+<title>Finas, regista despesas só a escrever no Telegram</title>
+<meta name="description" content="Mandas uma mensagem ao bot como mandarias a um amigo. O Finas percebe o valor, o sítio e a categoria, e organiza tudo numa dashboard.">
 <link rel="canonical" href="https://finas.online/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://finas.online/">
 <meta property="og:site_name" content="Finas">
 <meta property="og:locale" content="pt_PT">
-<meta property="og:title" content="Finas, contas pessoais escritas como pensas nelas">
-<meta property="og:description" content="Escreves a despesa ao bot de Telegram como escreverias a um amigo. Uma IA percebe o valor, o sítio e a categoria, e vês tudo numa dashboard web.">
+<meta property="og:title" content="Finas, regista despesas só a escrever no Telegram">
+<meta property="og:description" content="Mandas uma mensagem ao bot como mandarias a um amigo. O Finas percebe o valor, o sítio e a categoria, e organiza tudo numa dashboard.">
 <meta property="og:image" content="https://finas.online/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -30,27 +30,28 @@
     <a class="logo" href="#topo">Finas</a>
     <nav class="nav-links">
       <a href="#como-funciona">Como funciona</a>
-      <a href="https://dashboard.finas.online">Dashboard</a>
       <a href="#open-source">Open source</a>
+      <a href="https://dashboard.finas.online">Entrar</a>
     </nav>
-    <button class="botao botao-pequeno" data-abrir>Quero testar</button>
+    <button class="botao botao-pequeno" data-abrir>Pedir acesso</button>
   </div>
 </header>
 
 <section class="hero" id="topo">
   <div class="caixa hero-grelha">
     <div class="hero-texto revelar">
-      <p class="etiqueta">Bot de Telegram e dashboard web</p>
-      <h1>Escreve.<br>Ele trata<br>do resto.</h1>
+      <p class="etiqueta">Despesas pessoais, pelo Telegram</p>
+      <h1>Gastaste?<br>Só tens de<br>escrever.</h1>
       <p class="chamada">
-        Contas pessoais sem app para abrir e sem formulários para preencher. Escreves como escreverias
-        a um amigo, uma IA percebe o valor, o sítio e a categoria, e guarda tudo por ti.
+        Mandas uma mensagem ao bot, tipo "30€ na Fnac", e ele percebe o valor, o sítio e a categoria.
+        Fica tudo guardado e organizado numa dashboard, sem apps para abrir nem formulários para
+        preencher.
       </p>
       <div class="hero-botoes">
-        <button class="botao" data-abrir>Quero testar</button>
-        <a class="botao botao-vazio" href="https://github.com/todfilipe/Finas">Ver o código</a>
+        <button class="botao" data-abrir>Pedir acesso</button>
+        <a class="botao botao-vazio" href="#como-funciona">Ver como funciona</a>
       </div>
-      <p class="nota">Projeto pessoal open source. O acesso ao bot é dado a pedido.</p>
+      <p class="nota">Projeto open source. Por agora, o acesso ao bot é dado a pedido.</p>
     </div>
 
     <div class="telemovel revelar">
@@ -60,37 +61,70 @@
   </div>
 </section>
 
-<section class="escura" id="como-funciona">
+<section class="escura" id="problema">
+  <div class="caixa duas-colunas problema">
+    <div class="revelar">
+      <h2>Controlar gastos<br>não devia dar<br>trabalho.</h2>
+      <p class="chamada">
+        Toda a gente já tentou: uma app de finanças, uma folha de Excel, notas no telemóvel. Ao fim
+        de duas semanas estava esquecida. Não foi falta de vontade, foi porque cada despesa pedia
+        cinco passos.
+      </p>
+    </div>
+
+    <div class="comparacao revelar">
+      <p class="comparacao-titulo">Numa app normal</p>
+      <ol class="riscados">
+        <li>Abrir a app.</li>
+        <li>Escolher a conta.</li>
+        <li>Escrever o valor.</li>
+        <li>Procurar a categoria.</li>
+        <li>Guardar.</li>
+      </ol>
+      <p class="comparacao-titulo">No Finas</p>
+      <p class="frase">Escrever uma frase.</p>
+    </div>
+  </div>
+
   <div class="caixa">
-    <h2 class="revelar">Três passos,<br>e já está.</h2>
+    <p class="remate revelar">
+      O Finas fica onde já estás, no Telegram. Registar uma despesa demora o mesmo que mandar uma
+      mensagem.
+    </p>
+  </div>
+</section>
+
+<section id="como-funciona">
+  <div class="caixa">
+    <h2 class="revelar">De uma frase<br>a uma despesa arrumada.</h2>
     <div class="passos">
       <div class="passo revelar">
         <span class="numero">01</span>
         <h3>Escreves</h3>
-        <p>Uma frase normal no Telegram. Sem campos, sem menus, sem categorias para escolher à mão.</p>
+        <p>Como escreverias a um amigo: "jantar com a malta 45€" ou "recebi o ordenado, 1200". Sem campos nem menus.</p>
       </div>
       <div class="passo revelar">
         <span class="numero">02</span>
-        <h3>A IA percebe</h3>
-        <p>Valor, comerciante, data e categoria saem da frase já validados. Enganaste te? Corriges por texto, também em linguagem natural.</p>
+        <h3>O Finas percebe</h3>
+        <p>Tira da frase o valor, o sítio, a data e a categoria, e diz-te o que guardou. Se errou, corriges por texto: "afinal foi no Continente".</p>
       </div>
       <div class="passo revelar">
         <span class="numero">03</span>
-        <h3>Vês tudo</h3>
-        <p>Na dashboard tens o saldo do mês, gastos por categoria, filtros e edição de qualquer movimento.</p>
+        <h3>Vês para onde vai o dinheiro</h3>
+        <p>Na dashboard tens o saldo do mês, os gastos por categoria e a evolução dos últimos meses.</p>
       </div>
     </div>
   </div>
 </section>
 
-<section id="dashboard">
+<section id="dashboard" class="com-linha">
   <div class="caixa">
     <div class="duas-colunas topo-seccao">
       <h2 class="revelar">A conversa,<br>organizada.</h2>
       <div class="revelar">
         <p class="chamada">
-          O bot é só a entrada de dados. O histórico, os gráficos e as categorias vivem numa dashboard
-          web, com login sem password: pedes um código ao bot e entras.
+          O Telegram é só onde escreves. Para ver o quadro todo, pedes um código ao bot e entras na
+          dashboard, sem password.
         </p>
         <ul class="lista">
           <li>Saldo do mês, com entradas e saídas lado a lado</li>
@@ -122,14 +156,15 @@
     </div>
 
     <p class="legenda">O resumo do mês e a lista de movimentos, na app a sério.</p>
-  </section>
+  </div>
+</section>
 
 <section class="escura" id="open-source">
   <div class="caixa">
     <h2 class="revelar centrado">Feito à vista<br>de todos.</h2>
     <p class="chamada centrado revelar">
-      O Finas é um projeto pessoal com o código aberto. Podes ler tudo, correr na tua máquina, ou
-      alojar a tua própria instância com o teu bot e a tua chave de IA.
+      O código do Finas é aberto. Podes ler tudo, correr na tua máquina ou alojar a tua própria
+      versão, com o teu bot e a tua chave de IA.
     </p>
     <div class="stack revelar">
       <span>Python</span>
@@ -152,10 +187,14 @@
   <div class="caixa centrado revelar">
     <h2>Queres experimentar?</h2>
     <p class="chamada centrado">
-      A instância que está no ar é pessoal, por isso o acesso ao bot é dado caso a caso. Se és uma
-      empresa ou um cliente e queres ver isto a funcionar a sério, fala comigo que eu dou te acesso.
+      Por agora o Finas corre numa instância pessoal, por isso dou acesso ao bot a quem pedir.
+      Manda-me mensagem e eu trato do resto.
     </p>
-    <button class="botao" data-abrir>Falar comigo</button>
+    <button class="botao" data-abrir>Pedir acesso</button>
+    <p class="secundaria">
+      Estás a recrutar ou queres algo parecido para a tua empresa?
+      <button class="ligacao" data-abrir>Fala comigo</button>.
+    </p>
   </div>
 </section>
 
@@ -171,7 +210,7 @@
   <div class="modal">
     <button class="fechar" data-fechar aria-label="Fechar">&times;</button>
     <h3>Vamos falar</h3>
-    <p>Escolhe o que te der mais jeito. Diz só que queres testar o Finas e eu trato do acesso ao bot.</p>
+    <p>Para pedir acesso ao bot, diz só que queres testar o Finas. Para outra coisa qualquer, também é por aqui.</p>
     <div class="redes">
       <a href="https://t.me/todfilipe">
         <strong>Telegram</strong>
