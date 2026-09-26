@@ -54,9 +54,47 @@
       <p class="nota">Projeto open source. Por agora, o acesso ao bot é dado a pedido.</p>
     </div>
 
-    <div class="telemovel revelar">
-      <img src="img/telemovel.webp" width="996" height="1498" fetchpriority="high"
-           alt="Telemóvel com a conversa no Finas: uma despesa escrita em linguagem natural, a resposta do bot, e uma correção feita por texto">
+    <div class="demo revelar" role="img"
+         aria-label="Exemplo de conversa no Finas: escreves hoje gastei 30 euros na fnac, e o bot guarda uma despesa de 30 euros na Fnac, categoria Tecnologia, com a data de hoje">
+      <div class="demo-palco" id="demo-palco">
+        <img class="foto" src="img/telemovel-vazio.webp" width="996" height="1498" fetchpriority="high" alt="">
+
+        <div class="camada">
+          <div class="ecra">
+            <div class="conversa-topo">
+              <span class="avatar"><img src="img/logo-simbolo.png" alt=""></span>
+              <div>
+                <strong>Finas</strong>
+                <span>bot</span>
+              </div>
+            </div>
+            <div class="conversa" id="conversa">
+              <div class="bolha bolha-eu">hoje gastei 30 euros na fnac</div>
+              <div class="bolha bolha-bot">Anotado! 30€ na Fnac, categoria Tecnologia.</div>
+            </div>
+            <div class="escrever" id="escrever">
+              <span class="escrever-linha"><span id="escrever-texto"></span><span class="cursor"></span></span>
+              <span class="enviar">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 12V2M7 2L2.5 6.5M7 2L11.5 6.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ficha-sitio">
+          <div class="ficha mostrar" id="ficha">
+            <p class="ficha-titulo" id="ficha-titulo">Despesa guardada</p>
+            <div id="ficha-linhas">
+              <div class="linha"><span>Valor</span><strong class="cheio">30,00 €</strong></div>
+              <div class="linha"><span>Sítio</span><strong class="cheio">Fnac</strong></div>
+              <div class="linha"><span>Categoria</span><strong class="cheio">Tecnologia</strong></div>
+              <div class="linha"><span>Data</span><strong class="cheio">Hoje</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
