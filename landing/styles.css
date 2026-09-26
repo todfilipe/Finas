@@ -341,9 +341,75 @@ footer {
   letter-spacing: -0.02em;
   padding: 10px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
+  transition: opacity 0.4s ease;
+}
+
+.riscados span {
+  position: relative;
+}
+
+.riscados span::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 54%;
+  height: 2px;
+  background: var(--branco);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.45s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.comparacao.riscar .riscados li {
   opacity: 0.4;
+}
+
+.comparacao.riscar .riscados span::after {
+  transform: scaleX(1);
+}
+
+.riscados li:nth-child(1),
+.riscados li:nth-child(1) span::after {
+  transition-delay: 0.2s;
+}
+
+.riscados li:nth-child(2),
+.riscados li:nth-child(2) span::after {
+  transition-delay: 0.45s;
+}
+
+.riscados li:nth-child(3),
+.riscados li:nth-child(3) span::after {
+  transition-delay: 0.7s;
+}
+
+.riscados li:nth-child(4),
+.riscados li:nth-child(4) span::after {
+  transition-delay: 0.95s;
+}
+
+.riscados li:nth-child(5),
+.riscados li:nth-child(5) span::after {
+  transition-delay: 1.2s;
+}
+
+.depois .comparacao-titulo {
+  opacity: 0;
+  transition: opacity 0.5s ease 1.7s;
+}
+
+.comparacao.riscar .depois .comparacao-titulo {
+  opacity: 0.5;
+}
+
+.depois .frase {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 0.9s cubic-bezier(0.65, 0, 0.35, 1) 1.9s;
+}
+
+.comparacao.riscar .depois .frase {
+  clip-path: inset(0 0 0 0);
 }
 
 .frase {
@@ -757,6 +823,13 @@ footer {
   .janela-frente,
   .janela-tras {
     transform: none;
+    transition: none;
+  }
+
+  .riscados li,
+  .riscados span::after,
+  .depois .comparacao-titulo,
+  .depois .frase {
     transition: none;
   }
 }

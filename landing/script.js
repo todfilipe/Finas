@@ -51,6 +51,21 @@ document.querySelectorAll(".revelar").forEach(function (elemento) {
   observador.observe(elemento);
 });
 
+const comparacao = document.querySelector(".comparacao");
+
+const observadorComparacao = new IntersectionObserver(function (entradas) {
+  entradas.forEach(function (entrada) {
+    if (entrada.isIntersecting) {
+      entrada.target.classList.add("riscar");
+      observadorComparacao.unobserve(entrada.target);
+    }
+  });
+}, { threshold: 0.6 });
+
+if (comparacao !== null) {
+  observadorComparacao.observe(comparacao);
+}
+
 const palco = document.querySelector(".palco");
 
 function atualizarPalco() {
